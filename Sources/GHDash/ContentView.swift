@@ -7,6 +7,8 @@ struct ContentView: View {
     @AppStorage("hideFailingDependabot") private var hideFailingDependabot = true
     /// Full name of the repository the dashboard is scoped to; empty for all.
     @AppStorage("scopedRepo") private var scopedRepoName = ""
+    /// Newline-separated ids of the sections the user has collapsed.
+    @AppStorage("collapsedSections") private var collapsedSections = ""
     @State private var isChoosingRepos = false
 
     var body: some View {
@@ -81,13 +83,17 @@ struct ContentView: View {
         List {
             if store.lastUpdated != nil {
                 pullRequestSection(
-                    "My open pull requests",
+                    "My open pull requests", id: "mine",
                     store.myPullRequests.filter { !$0.isOnlyAwaitingReview },
                     showAuthor: false
                 )
-                pullRequestSection("Awaiting your review", store.reviewRequests, showAuthor: true)
                 pullRequestSection(
-                    "My pull requests waiting on reviewers",
+                    "Awaiting your review", id: "review",
+                    store.reviewRequests,
+                    showAuthor: true
+                )
+                pullRequestSection(
+                    "My pull requests waiting on reviewers", id: "waiting",
                     store.myPullRequests.filter(\.isOnlyAwaitingReview),
                     showAuthor: false
                 )
@@ -184,7 +190,21 @@ struct ContentView: View {
             + store.pendingRuns.filter { $0.canApprove && (repo == nil || $0.repo == repo) }.count
     }
 
-    private func pullRequestSection(_ title: String, _ all: [PullRequest], showAuthor: Bool) -> some View {
+    private func isExpanded(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedSections.split(separator: "\n").contains(Substring(id)) },
+            set: { expanded in
+                var collapsed = collapsedSections.split(separator: "\n").map(String.init).filter { $0 != id }
+                if !expanded { collapsed.append(id) }
+                collapsedSections = collapsed.joined(separator: "\n")
+            }
+        )
+    }
+
+    private func pullRequestSection(
+        _ title: String, id: String, _ all: [PullRequest], showAuthor: Bool
+    ) -> some View {
+        let isExpanded = isExpanded(id)
         let pullRequests = pullRequests(all, in: scope)
         let visible = visible(pullRequests)
         let hiddenDrafts = hideDrafts ? pullRequests.filter(\.isDraft).count : 0
@@ -196,7 +216,7 @@ struct ContentView: View {
         if hiddenDependabot > 0 {
             notes.append("\(hiddenDependabot) failing Dependabot hidden")
         }
-        return Section {
+        return Section(isExpanded: isExpanded) {
             if visible.isEmpty {
                 EmptyRow(text: "None")
             }
@@ -207,6 +227,7 @@ struct ContentView: View {
             SectionHeader(
                 title: title,
                 count: visible.count,
+                isExpanded: isExpanded,
                 note: notes.isEmpty ? nil : notes.joined(separator: ", ")
             )
         }
@@ -216,21 +237,28 @@ struct ContentView: View {
     private var pendingRunSections: some View {
         let repos = scope.map { [$0] } ?? store.repos
         if !store.pendingRuns.contains(where: { repos.contains($0.repo) }) {
-            Section {
+            let isExpanded = isExpanded("runs")
+            Section(isExpanded: isExpanded) {
                 EmptyRow(text: "No pending workflow runs")
             } header: {
-                SectionHeader(title: "Pending actions", count: 0)
+                SectionHeader(title: "Pending actions", count: 0, isExpanded: isExpanded)
             }
         }
         ForEach(repos) { repo in
             let runs = store.pendingRuns.filter { $0.repo == repo }
             if !runs.isEmpty {
-                Section {
+                let isExpanded = isExpanded("runs:\(repo.fullName)")
+                Section(isExpanded: isExpanded) {
                     ForEach(runs) { run in
                         WorkflowRunRow(run: run)
                     }
                 } header: {
-                    SectionHeader(title: "Pending actions · \(repo.name)", count: runs.count, link: repo.actionsURL)
+                    SectionHeader(
+                        title: "Pending actions · \(repo.name)",
+                        count: runs.count,
+                        isExpanded: isExpanded,
+                        link: repo.actionsURL
+                    )
                 }
             }
         }
@@ -256,22 +284,39 @@ private struct ToolbarSwitch: View {
 private struct SectionHeader: View {
     let title: String
     let count: Int
+    @Binding var isExpanded: Bool
     var note: String?
     var link: URL?
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.primary)
-            Text(verbatim: "\(count)")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-            if let note {
-                Text("· \(note)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(verbatim: "\(count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    if let note {
+                        Text("· \(note)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .help(isExpanded ? "Collapse section" : "Expand section")
             Spacer()
             if let link {
                 Link(destination: link) {
