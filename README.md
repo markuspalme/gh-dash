@@ -1,6 +1,6 @@
 # GHDash
 
-A small native macOS dashboard for your GitHub work across the repositories you choose. The main goal of this application is to show everything that's waiting for me across repositories at a glance.
+A small native macOS dashboard for your GitHub work across the repositories you choose. The main goal of this application is to show everything that's waiting for you across repositories at a glance.
 
 > This project is 100% vibe-coded: all of the code was written by Claude Code from conversational prompts.
 
