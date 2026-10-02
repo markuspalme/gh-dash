@@ -4,6 +4,10 @@ A small native macOS dashboard for your GitHub work across the repositories you 
 
 > This project is 100% vibe-coded: all of the code was written by Claude Code from conversational prompts.
 
+![GHDash showing pull requests, review requests and pending Actions runs](docs/screenshot.png)
+
+*Screenshot of the demo mode, which shows made-up data.*
+
 It shows:
 
 - **My open pull requests** – with draft, review, approval, check, conflict and unresolved-thread status
@@ -28,6 +32,7 @@ The app gets its token by running `gh auth token` and stores no credentials itse
 ```sh
 make run      # build and open the app
 make install  # copy it to /Applications
+make demo     # open a second instance with made-up data, no GitHub login needed
 ```
 
 On first launch, pick the repositories to show with **Choose Repositories…**.

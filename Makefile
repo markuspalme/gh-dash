@@ -1,6 +1,6 @@
 APP := build/Build/Products/Release/GHDash.app
 
-.PHONY: project build run install clean
+.PHONY: project build run demo install clean
 
 project:
 	xcodegen generate --quiet
@@ -13,6 +13,10 @@ build: project
 
 run: build
 	open $(APP)
+
+# A second instance with made-up data; leaves your settings and GitHub alone.
+demo: build
+	open -n $(APP) --args --demo -hideDrafts YES -hideFailingDependabot YES -scopedRepo ""
 
 install: build
 	rm -rf /Applications/GHDash.app

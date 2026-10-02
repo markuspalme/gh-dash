@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct GHDashApp: App {
-    @State private var store = DashboardStore()
+    @State private var store = DashboardStore(demo: ProcessInfo.processInfo.arguments.contains("--demo"))
 
     var body: some Scene {
         Window("GitHub Dashboard", id: "main") {

@@ -20,8 +20,15 @@ final class DashboardStore {
 
     @ObservationIgnored private var refreshQueued = false
     private static let reposKey = "selectedRepos"
+    /// Demo mode shows `DemoData` and never touches GitHub or the saved selection.
+    private let isDemo: Bool
 
-    init() {
+    init(demo: Bool = false) {
+        isDemo = demo
+        guard !demo else {
+            repos = DemoData.repos
+            return
+        }
         let stored = UserDefaults.standard.stringArray(forKey: Self.reposKey) ?? []
         repos = stored.compactMap(Repo.init(fullName:))
     }
@@ -39,10 +46,16 @@ final class DashboardStore {
             reviewRequests.removeAll { $0.repoFullName == repo.fullName }
             pendingRuns.removeAll { $0.repo == repo }
         }
-        UserDefaults.standard.set(repos.map(\.fullName), forKey: Self.reposKey)
+        if !isDemo {
+            UserDefaults.standard.set(repos.map(\.fullName), forKey: Self.reposKey)
+        }
     }
 
     func loadAvailableRepos() async {
+        guard !isDemo else {
+            availableRepos = DemoData.repos
+            return
+        }
         guard !isLoadingAvailableRepos else { return }
         isLoadingAvailableRepos = true
         defer { isLoadingAvailableRepos = false }
@@ -92,6 +105,15 @@ final class DashboardStore {
 
     private func load() async {
         let repos = repos
+        guard !isDemo else {
+            let selected = Set(repos.map(\.fullName))
+            let byRecency: (PullRequest, PullRequest) -> Bool = { $0.updatedAt > $1.updatedAt }
+            myPullRequests = DemoData.myPullRequests.filter { selected.contains($0.repoFullName) }.sorted(by: byRecency)
+            reviewRequests = DemoData.reviewRequests.filter { selected.contains($0.repoFullName) }.sorted(by: byRecency)
+            pendingRuns = DemoData.pendingRuns.filter { repos.contains($0.repo) }.sorted { $0.createdAt > $1.createdAt }
+            lastUpdated = .now
+            return
+        }
         let client: GitHubClient
         do {
             client = try await GitHubClient.authenticated()
