@@ -41,7 +41,33 @@ On first launch, pick the repositories to show with **Choose Repositories…**.
 
 ## iOS
 
-The iPhone and iPad app shows the same dashboard. It needs iOS 18 or later and has no notifications or badge yet.
+<img src="docs/screenshot-ios.png" alt="GHDash on an iPhone, showing pull requests with icon badges" width="300">
+
+*The iPhone app in demo mode, which shows made-up data.*
+
+The iPhone and iPad app shows the same dashboard as the Mac app: the same four sections, collapsible, with every row opening the pull request or workflow run on GitHub. It needs iOS 18 or later.
+
+- **Repositories** – the dashboard opens on all repositories; the back button leads to the repository list with item counts, where you can scope to one repository, choose which repositories to show, or sign out. On an iPad that list is a sidebar.
+- **Filters** – the filter button hides drafts and failing Dependabot pull requests, as the two switches do on the Mac.
+- **Refreshing** – pull down to refresh; the app also refreshes every three minutes while it is open.
+- **Not on iOS** – notifications and an app-icon badge.
+
+On an iPhone the status badges shrink to an icon and a number so that they fit on one line:
+
+| Badge | Meaning |
+|---|---|
+| eye | review required |
+| seal with a check mark | approved |
+| thumbs down | changes requested |
+| thumbs up and a number | approvals |
+| person and a number | reviewers still to respond |
+| check mark in a circle and a number | all checks passed |
+| cross in a circle, e.g. 2/11 | failing checks out of the total |
+| clock, e.g. 3/9 | checks still running out of the total |
+| speech bubble and a number | unresolved review threads |
+| warning triangle | merge conflicts |
+
+An iPad has room for the full text, as on the Mac.
 
 ### Signing in
 
