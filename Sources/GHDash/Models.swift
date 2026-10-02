@@ -51,6 +51,19 @@ struct PullRequest: Identifiable, Sendable {
 
     var needsAuthorAttention: Bool { !problems.isEmpty }
 
+    /// Why the pull request is back with its author: something to fix, a
+    /// reviewer's comments to answer, or an approval to act on.
+    var reasonsBackWithAuthor: [String] {
+        var reasons = problems
+        if unresolvedThreads > 0, !reasons.contains("Changes requested") {
+            reasons.append("Unresolved review comments")
+        }
+        if review.decision == .approved {
+            reasons.append("Approved")
+        }
+        return reasons
+    }
+
     /// Nothing left for the author to do but wait for reviewers.
     var isOnlyAwaitingReview: Bool {
         !isDraft

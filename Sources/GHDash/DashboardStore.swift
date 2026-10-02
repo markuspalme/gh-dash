@@ -153,7 +153,7 @@ final class DashboardStore {
 
     private struct AttentionItem {
         let id: String
-        let title: String
+        var title: String
         let subtitle: String
         let body: String
         let url: URL
@@ -161,8 +161,9 @@ final class DashboardStore {
         let isVisible: Bool
     }
 
-    /// Everything waiting on the user: review requests, their own pull requests
-    /// that need fixing, and deployments they can approve.
+    /// Everything worth a notification when it first appears: review requests,
+    /// each reason one of the user's own pull requests needs them again,
+    /// pending workflow runs, and deployments the user can approve.
     private var attentionItems: [AttentionItem] {
         let filter = PullRequestFilter.saved
         let reviews = reviewRequests.map { pullRequest in
@@ -175,15 +176,19 @@ final class DashboardStore {
                 isVisible: filter.shows(pullRequest)
             )
         }
-        let fixes = myPullRequests.filter(\.needsAuthorAttention).map { pullRequest in
-            AttentionItem(
-                id: "fix:\(pullRequest.id)",
-                title: pullRequest.problems.joined(separator: ", "),
-                subtitle: pullRequest.title,
-                body: "\(pullRequest.repoName) #\(pullRequest.number)",
-                url: pullRequest.url,
-                isVisible: filter.shows(pullRequest)
-            )
+        // One item per reason, so a pull request that already had conflicts
+        // still notifies when, say, changes are requested on top.
+        let fixes = myPullRequests.flatMap { pullRequest in
+            pullRequest.reasonsBackWithAuthor.map { reason in
+                AttentionItem(
+                    id: "mine:\(pullRequest.id):\(reason)",
+                    title: reason,
+                    subtitle: pullRequest.title,
+                    body: "\(pullRequest.repoName) #\(pullRequest.number)",
+                    url: pullRequest.url,
+                    isVisible: filter.shows(pullRequest)
+                )
+            }
         }
         let approvals = pendingRuns.filter(\.canApprove).map { run in
             AttentionItem(
@@ -195,10 +200,20 @@ final class DashboardStore {
                 isVisible: true
             )
         }
-        return reviews + fixes + approvals
+        let runs = pendingRuns.map { run in
+            AttentionItem(
+                id: "run:\(run.id)",
+                title: "New workflow run",
+                subtitle: "\(run.workflowName) #\(run.runNumber)",
+                body: "\(run.repo.name) · \(run.title)",
+                url: run.url,
+                isVisible: true
+            )
+        }
+        return reviews + fixes + approvals + runs
     }
 
-    /// Notifies about items that were not waiting on the user after the previous load.
+    /// Notifies about items that were not there after the previous load.
     private func notifyAboutNewAttentionItems(in repos: [Repo]) {
         let items = attentionItems
         let previous = knownAttention
@@ -207,10 +222,21 @@ final class DashboardStore {
         // changed, only set the baseline: nothing in them is news.
         guard let previous, previous.repos == repos else { return }
 
-        let new = items.filter { $0.isVisible && !previous.ids.contains($0.id) }
+        var new = items.filter { $0.isVisible && !previous.ids.contains($0.id) }
+        // A run that is new and already awaiting approval gets one notification, not two.
+        let newApprovals = Set(new.map(\.id).filter { $0.hasPrefix("approve:") })
+        new.removeAll { $0.id.hasPrefix("run:") && newApprovals.contains("approve:" + $0.id.dropFirst(4)) }
+        // Several new reasons on one pull request become a single notification.
+        new = new.reduce(into: []) { merged, item in
+            if let index = merged.firstIndex(where: { $0.url == item.url }) {
+                merged[index].title += ", " + item.title
+            } else {
+                merged.append(item)
+            }
+        }
         if new.count > 3 {
             Notifier.shared.post(
-                title: "\(new.count) new items waiting on you",
+                title: "\(new.count) new items",
                 body: new.prefix(3).map(\.subtitle).joined(separator: "\n")
             )
         } else {
