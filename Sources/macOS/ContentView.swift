@@ -89,12 +89,19 @@ struct ContentView: View {
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem {
-                ToolbarSwitch(title: "Hide Drafts", isOn: $hideDrafts)
-                    .help("Hide draft pull requests")
-            }
-            ToolbarItem {
-                ToolbarSwitch(title: "Hide Failing Dependabot", isOn: $hideFailingDependabot)
-                    .help("Hide Dependabot pull requests with a failing check")
+                Menu {
+                    Toggle("Hide Drafts", isOn: $hideDrafts)
+                    Toggle("Hide Failing Dependabot", isOn: $hideFailingDependabot)
+                } label: {
+                    // Filled while a filter is hiding something, as in Mail.
+                    Label(
+                        "Filter",
+                        systemImage: hideDrafts || hideFailingDependabot
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
+                    )
+                }
+                .help("Choose which pull requests to hide")
             }
             ToolbarItem {
                 Menu {
@@ -125,21 +132,5 @@ struct ContentView: View {
         if store.isLoading { return "Refreshing…" }
         guard let lastUpdated = store.lastUpdated else { return "" }
         return "Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))"
-    }
-}
-
-private struct ToolbarSwitch: View {
-    let title: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-            Toggle(title, isOn: $isOn)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .labelsHidden()
-        }
-        .padding(.horizontal, 6)
     }
 }
