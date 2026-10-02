@@ -108,7 +108,10 @@ struct GitHubClient: Sendable {
           commits(last: 1) {
             nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
               __typename
-              ... on CheckRun { name status conclusion }
+              ... on CheckRun {
+                name status conclusion startedAt
+                checkSuite { workflowRun { event workflow { name } } }
+              }
               ... on StatusContext { context state }
             } } } } }
           }
@@ -282,18 +285,38 @@ private struct PullRequestNode: Decodable {
         let commit: Commit
     }
     struct Check: Decodable {
+        struct Suite: Decodable {
+            struct WorkflowRun: Decodable {
+                struct Workflow: Decodable {
+                    let name: String
+                }
+                let event: String
+                let workflow: Workflow
+            }
+            let workflowRun: WorkflowRun?
+        }
+
         let typename: String
         // CheckRun
         let name: String?
         let status: String?
         let conclusion: String?
+        let startedAt: Date?
+        let checkSuite: Suite?
         // StatusContext
         let context: String?
         let state: String?
 
         enum CodingKeys: String, CodingKey {
             case typename = "__typename"
-            case name, status, conclusion, context, state
+            case name, status, conclusion, startedAt, checkSuite, context, state
+        }
+
+        /// Runs of the same job in the same workflow share a key; GitHub
+        /// only counts the most recent of them.
+        var key: String {
+            let run = checkSuite?.workflowRun
+            return [typename, run?.workflow.name ?? "", run?.event ?? "", name ?? context ?? ""].joined(separator: "\u{0}")
         }
     }
 
@@ -374,7 +397,21 @@ private extension PullRequest {
         var passed = 0
         var failed: [String] = []
         var pending: [String] = []
+        // A re-run workflow leaves its earlier check runs on the commit. Keep
+        // only the latest run of each check, as GitHub's own UI does.
+        var latest: [String: PullRequestNode.Check] = [:]
+        var order: [String] = []
         for check in node.commits.items.first?.commit.statusCheckRollup?.contexts.items ?? [] {
+            if let existing = latest[check.key] {
+                if (check.startedAt ?? .distantPast) >= (existing.startedAt ?? .distantPast) {
+                    latest[check.key] = check
+                }
+            } else {
+                latest[check.key] = check
+                order.append(check.key)
+            }
+        }
+        for check in order.compactMap({ latest[$0] }) {
             let name = check.name ?? check.context ?? "check"
             if check.typename == "CheckRun" {
                 if check.status != "COMPLETED" {
