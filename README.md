@@ -2,6 +2,8 @@
 
 A small native macOS dashboard for your GitHub work across the repositories you choose.
 
+> This project is 100% vibe-coded: all of the code was written by Claude Code from conversational prompts.
+
 It shows:
 
 - **My open pull requests** – with draft, review, approval, check, conflict and unresolved-thread status
