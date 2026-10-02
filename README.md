@@ -45,15 +45,15 @@ The iPhone and iPad app shows the same dashboard. It needs iOS 18 or later and h
 
 ### Signing in
 
-iOS has no GitHub CLI to borrow a login from, so the app signs in with GitHub's OAuth [device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow): it shows a short code, you enter it on github.com, and the app receives a token that it keeps in the Keychain. The flow needs no client secret, so nothing confidential is in the app.
+iOS has no GitHub CLI to borrow a login from, so you sign in by pasting a personal access token:
 
-Sign-in goes through a GitHub OAuth app, whose client ID (a public identifier) is in `Sources/iOS/OAuthConfig.swift`. To use an OAuth app of your own instead:
+1. Create a classic token at <https://github.com/settings/tokens/new> with the `repo` scope, which is what lets the app read private repositories. Adding `read:org` is optional: it lets the app show the names of teams asked to review, which otherwise appear as "a team". The sign-in screen links to that page with both scopes filled in.
+2. If an organisation uses single sign-on, authorise the token for it under **Configure SSO** on the token list.
+3. Paste the token into the app.
 
-1. Register one at <https://github.com/settings/applications/new>. The homepage and callback URLs can be anything, such as this repository's URL; the device flow does not use them.
-2. Tick **Enable Device Flow**.
-3. Replace the client ID in `Sources/iOS/OAuthConfig.swift`.
+The app checks the token with GitHub, then keeps it in the Keychain on the device. It is only ever sent to GitHub. **Sign Out** removes it.
 
-The app asks for the `repo` scope, which is what lets it read private repositories. If an organisation restricts third-party OAuth apps, an owner has to approve yours before its repositories show up.
+A token is used rather than an OAuth sign-in because a third-party OAuth app has to be approved by an owner of every organisation whose repositories it should see.
 
 ### Build and run
 

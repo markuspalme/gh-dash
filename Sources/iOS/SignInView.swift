@@ -1,97 +1,87 @@
-import AuthenticationServices
 import SwiftUI
 
 struct SignInView: View {
     let auth: AuthSession
-    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
-    @State private var browser: Task<Void, Never>?
+    @State private var token = ""
+    @FocusState private var isTokenFocused: Bool
+
+    /// GitHub's page for a new classic token, with the scopes and a name filled in.
+    private static let newTokenURL = URL(string: "https://github.com/settings/tokens/new?scopes=repo,read:org&description=GHDash")!
 
     var body: some View {
-        VStack(spacing: 28) {
-            Spacer()
-            VStack(spacing: 12) {
-                Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 96, height: 96)
-                    .background(.indigo.gradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                Text("GHDash")
-                    .font(.largeTitle.bold())
-                Text("Everything waiting on you across your GitHub repositories.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            step
-            Spacer()
-            Spacer()
-        }
-        .padding(32)
-        .frame(maxWidth: 460)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onDisappear { browser?.cancel() }
-    }
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    Image(systemName: "arrow.triangle.pull")
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 96, height: 96)
+                        .background(.indigo.gradient, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    Text("GHDash")
+                        .font(.largeTitle.bold())
+                    Text("Everything waiting on you across your GitHub repositories.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, 48)
 
-    @ViewBuilder
-    private var step: some View {
-        switch auth.phase {
-        case .signedOut:
-            signInButton
-        case .failed(let message):
-            VStack(spacing: 14) {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                signInButton
-            }
-        case .requestingCode:
-            ProgressView("Contacting GitHub…")
-        case .awaitingUser(let code, let url):
-            VStack(spacing: 18) {
-                Text("Enter this code on GitHub to connect the app:")
-                    .multilineTextAlignment(.center)
-                Text(code)
-                    .font(.system(.largeTitle, design: .monospaced).bold())
-                    .textSelection(.enabled)
-                Button {
-                    UIPasteboard.general.string = code
-                    openGitHub(url)
-                } label: {
-                    Label("Copy Code and Open GitHub", systemImage: "arrow.up.forward.app")
-                        .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Personal access token")
+                        .font(.headline)
+                    HStack {
+                        SecureField("ghp_…", text: $token)
+                            .textContentType(.password)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($isTokenFocused)
+                            .submitLabel(.go)
+                            .onSubmit(signIn)
+                        PasteButton(payloadType: String.self) { strings in
+                            token = strings.first ?? ""
+                        }
+                        .labelStyle(.iconOnly)
+                    }
+                    .padding(12)
+                    .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Text("Sign in with a classic token that has the **repo** scope; **read:org** adds the names of teams asked to review. It is stored in the Keychain on this device and only ever sent to GitHub.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Link(destination: Self.newTokenURL) {
+                        Label("Create a token on GitHub", systemImage: "arrow.up.right")
+                            .font(.footnote)
+                    }
+                }
+
+                if let message = auth.errorMessage {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(action: signIn) {
+                    Group {
+                        if auth.isCheckingToken {
+                            ProgressView()
+                        } else {
+                            Text("Sign In")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                ProgressView("Waiting for GitHub…")
-                    .font(.footnote)
-                Button("Cancel", role: .cancel) { auth.cancelSignIn() }
+                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || auth.isCheckingToken)
             }
+            .padding(32)
+            .frame(maxWidth: 460)
+            .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
-    private var signInButton: some View {
-        Button {
-            auth.signIn()
-        } label: {
-            Label("Sign in with GitHub", systemImage: "person.badge.key")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-    }
-
-    /// Shows GitHub's code page in the system sign-in sheet, which shares
-    /// Safari's GitHub login. The device flow never redirects back, so the
-    /// sheet closes when sign-in completes (this view goes away) or the user
-    /// dismisses it.
-    private func openGitHub(_ url: URL) {
-        browser?.cancel()
-        browser = Task {
-            _ = try? await webAuthenticationSession.authenticate(
-                using: url,
-                callbackURLScheme: "ghdash",
-                preferredBrowserSession: .shared
-            )
-        }
+    private func signIn() {
+        isTokenFocused = false
+        Task { await auth.signIn(with: token) }
     }
 }

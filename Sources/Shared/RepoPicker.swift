@@ -66,6 +66,15 @@ struct RepoPicker: View {
     private var list: some View {
         let repos = matchingRepos
         return List {
+            if store.availableReposHiddenBySSO {
+                Label {
+                    Text("Some organisations are hidden because this token is not authorised for their single sign-on. Authorise it under **Configure SSO** at github.com/settings/tokens.")
+                } icon: {
+                    Image(systemName: "lock.fill")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
             ForEach(repos) { repo in
                 row(for: repo)
             }

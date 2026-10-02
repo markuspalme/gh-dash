@@ -3,12 +3,14 @@ import Foundation
 enum GitHubError: LocalizedError {
     case http(status: Int, message: String)
     case graphQL(String)
+    /// The query asked for something the token's scopes don't cover.
+    case insufficientScopes(String)
 
     var errorDescription: String? {
         switch self {
         case .http(let status, let message):
             "GitHub API error \(status): \(message)"
-        case .graphQL(let message):
+        case .graphQL(let message), .insufficientScopes(let message):
             "GitHub GraphQL error: \(message)"
         }
     }
@@ -32,22 +34,18 @@ struct GitHubClient: Sendable {
         let qualifiers = repos.count <= 15 ? repos.map { " repo:\($0.fullName)" }.joined() : ""
         let scope = "is:pr is:open archived:false" + qualifiers
         let selected = Set(repos.map { $0.fullName.lowercased() })
-        let body: [String: Any] = [
-            "query": Self.pullRequestQuery,
-            "variables": [
-                "mine": "\(scope) author:@me",
-                "review": "\(scope) review-requested:@me",
-            ],
+        let variables = [
+            "mine": "\(scope) author:@me",
+            "review": "\(scope) review-requested:@me",
         ]
-        var request = makeRequest(path: "graphql")
-        request.httpMethod = "POST"
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let response: GraphQLResponse<PullRequestSearch> = try await send(request)
-        if let message = response.errors?.first?.message, response.data == nil {
-            throw GitHubError.graphQL(message)
+        // Team names need the read:org scope. A token without it (a personal
+        // access token with just `repo`) still gets everything else.
+        let data: PullRequestSearch
+        do {
+            data = try await searchPullRequests(variables, teamNames: true)
+        } catch GitHubError.insufficientScopes {
+            data = try await searchPullRequests(variables, teamNames: false)
         }
-        guard let data = response.data else { throw GitHubError.graphQL("empty response") }
         let pullRequests: ([PullRequestNode]) -> [PullRequest] = { nodes in
             nodes.map(PullRequest.init)
                 .filter { selected.contains($0.repoFullName.lowercased()) }
@@ -56,14 +54,35 @@ struct GitHubClient: Sendable {
         return (pullRequests(data.mine.items), pullRequests(data.review.items))
     }
 
-    private static let pullRequestQuery = """
+    private func searchPullRequests(_ variables: [String: String], teamNames: Bool) async throws -> PullRequestSearch {
+        let body: [String: Any] = [
+            "query": Self.pullRequestQuery(teamNames: teamNames),
+            "variables": variables,
+        ]
+        var request = makeRequest(path: "graphql")
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let response: GraphQLResponse<PullRequestSearch> = try await send(request)
+        if let data = response.data {
+            return data
+        }
+        let message = response.errors?.first?.message ?? "empty response"
+        if response.errors?.contains(where: { $0.type == "INSUFFICIENT_SCOPES" }) == true {
+            throw GitHubError.insufficientScopes(message)
+        }
+        throw GitHubError.graphQL(message)
+    }
+
+    private static func pullRequestQuery(teamNames: Bool) -> String {
+        """
         fragment PR on PullRequest {
           id number title url isDraft updatedAt mergeable reviewDecision
           headRefName baseRefName
           author { login }
           repository { nameWithOwner }
           reviewRequests(first: 20) {
-            nodes { requestedReviewer { ... on User { login } ... on Team { name } } }
+            nodes { requestedReviewer { __typename ... on User { login } \(teamNames ? "... on Team { name }" : "") } }
           }
           latestOpinionatedReviews(first: 50) { nodes { state author { login } } }
           reviewThreads(first: 100) { nodes { isResolved } }
@@ -83,22 +102,38 @@ struct GitHubClient: Sendable {
           review: search(query: $review, type: ISSUE, first: 100) { nodes { ...PR } }
         }
         """
+    }
+
+    // MARK: Account
+
+    /// The login of the account the token belongs to; fails if GitHub rejects the token.
+    func fetchViewerLogin() async throws -> String {
+        let viewer: ViewerResponse = try await send(makeRequest(path: "user"))
+        return viewer.login
+    }
 
     // MARK: Repositories
 
-    /// Every non-archived repository the user has access to, most recently pushed first.
-    func fetchAccessibleRepos() async throws -> [Repo] {
+    /// Every non-archived repository the user has access to, most recently
+    /// pushed first. `hiddenBySSO` is true when GitHub left out organisations
+    /// because the token is not authorised for their single sign-on.
+    func fetchAccessibleRepos() async throws -> (repos: [Repo], hiddenBySSO: Bool) {
         var repos: [Repo] = []
+        var hiddenBySSO = false
         for page in 1...20 {
             let request = makeRequest(
                 path: "user/repos",
                 query: ["per_page": "100", "page": "\(page)", "sort": "pushed"]
             )
-            let batch: [RepoResponse] = try await send(request)
+            let (batch, response): ([RepoResponse], HTTPURLResponse?) = try await sendReturningResponse(request)
+            // e.g. "partial-results; organizations=21955855,20582480"
+            if response?.value(forHTTPHeaderField: "X-GitHub-SSO")?.hasPrefix("partial-results") == true {
+                hiddenBySSO = true
+            }
             repos += batch.filter { !$0.archived }.map { Repo(owner: $0.owner.login, name: $0.name) }
             if batch.count < 100 { break }
         }
-        return repos
+        return (repos, hiddenBySSO)
     }
 
     // MARK: Workflow runs
@@ -177,6 +212,10 @@ struct GitHubClient: Sendable {
     }
 
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
+        try await sendReturningResponse(request).0
+    }
+
+    private func sendReturningResponse<T: Decodable>(_ request: URLRequest) async throws -> (T, HTTPURLResponse?) {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let decoder = JSONDecoder()
@@ -186,7 +225,7 @@ struct GitHubClient: Sendable {
             let message = (try? decoder.decode(APIErrorBody.self, from: data))?.message
             throw GitHubError.http(status: status, message: message ?? "request failed")
         }
-        return try decoder.decode(T.self, from: data)
+        return (try decoder.decode(T.self, from: data), response as? HTTPURLResponse)
     }
 }
 
@@ -199,6 +238,7 @@ private struct APIErrorBody: Decodable {
 private struct GraphQLResponse<T: Decodable>: Decodable {
     struct Failure: Decodable {
         let message: String
+        let type: String?
     }
 
     let data: T?
@@ -225,8 +265,19 @@ private struct PullRequestNode: Decodable {
     }
     struct ReviewRequest: Decodable {
         struct Reviewer: Decodable {
+            let typename: String
             let login: String?
             let name: String?
+
+            enum CodingKeys: String, CodingKey {
+                case typename = "__typename"
+                case login, name
+            }
+
+            /// A user's login or a team's name; a team whose name the token may not read is just "a team".
+            var label: String? {
+                login ?? name ?? (typename == "Team" ? "a team" : nil)
+            }
         }
         let requestedReviewer: Reviewer?
     }
@@ -300,6 +351,10 @@ private struct PullRequestNode: Decodable {
     let commits: Connection<CommitNode>
 }
 
+private struct ViewerResponse: Decodable {
+    let login: String
+}
+
 private struct RepoResponse: Decodable {
     struct Owner: Decodable {
         let login: String
@@ -353,7 +408,7 @@ private extension PullRequest {
             decision: decision,
             approvedBy: reviews.filter { $0.state == "APPROVED" }.compactMap { $0.author?.login },
             changesRequestedBy: reviews.filter { $0.state == "CHANGES_REQUESTED" }.compactMap { $0.author?.login },
-            waitingOn: node.reviewRequests.items.compactMap { $0.requestedReviewer?.login ?? $0.requestedReviewer?.name }
+            waitingOn: node.reviewRequests.items.compactMap { $0.requestedReviewer?.label }
         )
 
         var passed = 0

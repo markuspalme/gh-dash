@@ -10,6 +10,8 @@ final class DashboardStore {
     private(set) var availableRepos: [Repo] = []
     private(set) var isLoadingAvailableRepos = false
     private(set) var availableReposError: String?
+    /// True when GitHub hid organisations the token is not authorised for.
+    private(set) var availableReposHiddenBySSO = false
 
     private(set) var myPullRequests: [PullRequest] = []
     private(set) var reviewRequests: [PullRequest] = []
@@ -26,7 +28,7 @@ final class DashboardStore {
     /// Demo mode shows `DemoData` and never touches GitHub or the saved selection.
     private let isDemo: Bool
     /// Where the GitHub token comes from: the GitHub CLI on the Mac, the
-    /// signed-in OAuth session on iOS.
+    /// personal access token the user signed in with on iOS.
     private let token: @Sendable () async throws -> String
 
     /// Posts a notification about a new item; unset means no notifications.
@@ -72,7 +74,7 @@ final class DashboardStore {
         isLoadingAvailableRepos = true
         defer { isLoadingAvailableRepos = false }
         do {
-            availableRepos = try await GitHubClient(token: token()).fetchAccessibleRepos()
+            (availableRepos, availableReposHiddenBySSO) = try await GitHubClient(token: token()).fetchAccessibleRepos()
             availableReposError = nil
         } catch {
             availableReposError = error.localizedDescription
@@ -85,6 +87,7 @@ final class DashboardStore {
         reviewRequests = []
         pendingRuns = []
         availableRepos = []
+        availableReposHiddenBySSO = false
         lastUpdated = nil
         errorMessage = nil
         knownAttention = nil

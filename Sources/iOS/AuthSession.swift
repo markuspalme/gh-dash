@@ -2,26 +2,19 @@ import Foundation
 import Observation
 import Security
 
-/// The signed-in GitHub account: runs the OAuth device flow and keeps the
-/// resulting token in the Keychain.
+/// The signed-in GitHub account: a personal access token the user pasted in,
+/// checked against GitHub once and then kept in the Keychain.
 @MainActor
 @Observable
 final class AuthSession {
-    enum Phase: Equatable {
-        case signedOut
-        case requestingCode
-        /// Waiting for the user to enter `code` at `url`.
-        case awaitingUser(code: String, url: URL)
-        case failed(String)
-    }
-
     struct NotSignedIn: LocalizedError {
         var errorDescription: String? { "Not signed in to GitHub." }
     }
 
     private(set) var token: String?
-    private(set) var phase: Phase = .signedOut
-    @ObservationIgnored private var signInTask: Task<Void, Never>?
+    private(set) var isCheckingToken = false
+    /// Why the last sign-in attempt failed.
+    private(set) var errorMessage: String?
 
     var isSignedIn: Bool { token != nil }
 
@@ -39,36 +32,27 @@ final class AuthSession {
         return token
     }
 
-    func signIn() {
-        signInTask?.cancel()
-        phase = .requestingCode
-        signInTask = Task {
-            let flow = GitHubDeviceFlow(clientID: OAuthConfig.clientID, scope: OAuthConfig.scope)
-            do {
-                let code = try await flow.requestCode()
-                phase = .awaitingUser(code: code.userCode, url: code.verificationUri)
-                let token = try await flow.waitForToken(code)
-                Keychain.save(token)
-                self.token = token
-                phase = .signedOut
-            } catch is CancellationError {
-                phase = .signedOut
-            } catch {
-                phase = .failed(error.localizedDescription)
-            }
+    /// Signs in with `candidate` if GitHub accepts it.
+    func signIn(with candidate: String) async {
+        let candidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty, !isCheckingToken else { return }
+        isCheckingToken = true
+        defer { isCheckingToken = false }
+        do {
+            _ = try await GitHubClient(token: candidate).fetchViewerLogin()
+            Keychain.save(candidate)
+            errorMessage = nil
+            token = candidate
+        } catch let error as GitHubError where error.isUnauthorized {
+            errorMessage = "GitHub rejected this token. Check that it was copied completely and has not expired."
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
-    func cancelSignIn() {
-        signInTask?.cancel()
-        phase = .signedOut
-    }
-
     func signOut() {
-        signInTask?.cancel()
         Keychain.delete()
         token = nil
-        phase = .signedOut
     }
 }
 

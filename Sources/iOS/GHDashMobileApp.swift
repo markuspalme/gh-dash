@@ -10,7 +10,7 @@ struct GHDashMobileApp: App {
         isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
         let auth = AuthSession()
         let store = DashboardStore(demo: isDemo, token: { try await auth.currentToken() })
-        // A rejected token (revoked or expired) sends the user back to sign-in.
+        // A token GitHub no longer accepts (revoked or expired) sends the user back to sign-in.
         store.onUnauthorized = { auth.signOut() }
         _auth = State(initialValue: auth)
         _store = State(initialValue: store)
