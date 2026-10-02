@@ -25,9 +25,18 @@ final class DashboardStore {
     private static let reposKey = "selectedRepos"
     /// Demo mode shows `DemoData` and never touches GitHub or the saved selection.
     private let isDemo: Bool
+    /// Where the GitHub token comes from: the GitHub CLI on the Mac, the
+    /// signed-in OAuth session on iOS.
+    private let token: @Sendable () async throws -> String
 
-    init(demo: Bool = false) {
+    /// Posts a notification about a new item; unset means no notifications.
+    @ObservationIgnored var postNotification: ((_ title: String, _ subtitle: String, _ body: String, _ url: URL?) -> Void)?
+    /// Called when GitHub rejects the token.
+    @ObservationIgnored var onUnauthorized: (() -> Void)?
+
+    init(demo: Bool = false, token: @escaping @Sendable () async throws -> String) {
         isDemo = demo
+        self.token = token
         guard !demo else {
             repos = DemoData.repos
             return
@@ -63,11 +72,45 @@ final class DashboardStore {
         isLoadingAvailableRepos = true
         defer { isLoadingAvailableRepos = false }
         do {
-            availableRepos = try await GitHubClient.authenticated().fetchAccessibleRepos()
+            availableRepos = try await GitHubClient(token: token()).fetchAccessibleRepos()
             availableReposError = nil
         } catch {
             availableReposError = error.localizedDescription
         }
+    }
+
+    /// Forgets everything loaded, e.g. after signing out.
+    func clear() {
+        myPullRequests = []
+        reviewRequests = []
+        pendingRuns = []
+        availableRepos = []
+        lastUpdated = nil
+        errorMessage = nil
+        knownAttention = nil
+    }
+
+    // MARK: Counts
+
+    func pullRequests(_ pullRequests: [PullRequest], in repo: Repo?) -> [PullRequest] {
+        guard let repo else { return pullRequests }
+        return pullRequests.filter { $0.repoFullName == repo.fullName }
+    }
+
+    /// Rows the dashboard shows for `repo` (nil for all repositories).
+    func itemCount(in repo: Repo?, filter: PullRequestFilter) -> Int {
+        pullRequests(myPullRequests, in: repo).filter(filter.shows).count
+            + pullRequests(reviewRequests, in: repo).filter(filter.shows).count
+            + pendingRuns.filter { repo == nil || $0.repo == repo }.count
+    }
+
+    /// Things waiting on the user in `repo` (nil for all repositories): visible
+    /// review requests, their own visible pull requests that need fixing, and
+    /// deployments they can approve.
+    func waitingOnMeCount(in repo: Repo?, filter: PullRequestFilter) -> Int {
+        pullRequests(reviewRequests, in: repo).filter(filter.shows).count
+            + pullRequests(myPullRequests, in: repo).filter(filter.shows).filter(\.needsAuthorAttention).count
+            + pendingRuns.filter { $0.canApprove && (repo == nil || $0.repo == repo) }.count
     }
 
     // MARK: Refreshing
@@ -119,7 +162,7 @@ final class DashboardStore {
         }
         let client: GitHubClient
         do {
-            client = try await GitHubClient.authenticated()
+            client = try await GitHubClient(token: token())
         } catch {
             errorMessage = error.localizedDescription
             return
@@ -129,15 +172,21 @@ final class DashboardStore {
         async let pullRequests = client.fetchPullRequests(repos: repos)
         async let runs = client.fetchPendingRuns(repos: repos)
         var errors: [String] = []
+        var isUnauthorized = false
         do {
             (myPullRequests, reviewRequests) = try await pullRequests
         } catch {
             errors.append("Pull requests: \(error.localizedDescription)")
+            isUnauthorized = (error as? GitHubError)?.isUnauthorized ?? false
         }
         do {
             pendingRuns = try await runs
         } catch {
             errors.append("Workflow runs: \(error.localizedDescription)")
+            isUnauthorized = isUnauthorized || (error as? GitHubError)?.isUnauthorized ?? false
+        }
+        if isUnauthorized {
+            onUnauthorized?()
         }
 
         errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
@@ -235,13 +284,10 @@ final class DashboardStore {
             }
         }
         if new.count > 3 {
-            Notifier.shared.post(
-                title: "\(new.count) new items",
-                body: new.prefix(3).map(\.subtitle).joined(separator: "\n")
-            )
+            postNotification?("\(new.count) new items", "", new.prefix(3).map(\.subtitle).joined(separator: "\n"), nil)
         } else {
             for item in new {
-                Notifier.shared.post(title: item.title, subtitle: item.subtitle, body: item.body, url: item.url)
+                postNotification?(item.title, item.subtitle, item.body, item.url)
             }
         }
     }

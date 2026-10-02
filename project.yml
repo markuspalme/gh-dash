@@ -2,22 +2,26 @@ name: GHDash
 options:
   deploymentTarget:
     macOS: "15.0"
+    iOS: "18.0"
   createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+    SWIFT_VERSION: "6.0"
+    GENERATE_INFOPLIST_FILE: YES
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 targets:
   GHDash:
     type: application
     platform: macOS
     sources:
-      - Sources
+      - Sources/Shared
+      - Sources/macOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.markuspalme.GHDash
         PRODUCT_NAME: GHDash
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: 1
-        SWIFT_VERSION: "6.0"
-        GENERATE_INFOPLIST_FILE: YES
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: GitHub Dashboard
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         # Not sandboxed: the app shells out to `gh auth token` for credentials.
@@ -25,3 +29,21 @@ targets:
         ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
+  GHDashMobile:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/Shared
+      - Sources/iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.markuspalme.GHDashMobile
+        PRODUCT_NAME: GHDashMobile
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: GHDash
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # Running on a device needs your own team: set DEVELOPMENT_TEAM here or in Xcode.
+        CODE_SIGN_STYLE: Automatic

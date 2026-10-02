@@ -6,10 +6,14 @@ struct GHDashApp: App {
 
     init() {
         let isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
-        _store = State(initialValue: DashboardStore(demo: isDemo))
+        let store = DashboardStore(demo: isDemo, token: GitHubCLI.token)
         if !isDemo {
             Notifier.shared.start()
+            store.postNotification = { title, subtitle, body, url in
+                Notifier.shared.post(title: title, subtitle: subtitle, body: body, url: url)
+            }
         }
+        _store = State(initialValue: store)
     }
 
     var body: some Scene {

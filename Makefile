@@ -1,6 +1,9 @@
 APP := build/Build/Products/Release/GHDash.app
 
-.PHONY: project build run demo install clean
+IOS_APP := build/Build/Products/Debug-iphonesimulator/GHDashMobile.app
+IOS_DEVICE ?= iPhone 17 Pro
+
+.PHONY: project build run demo install ios ios-run ios-demo clean
 
 project:
 	xcodegen generate --quiet
@@ -21,6 +24,20 @@ demo: build
 install: build
 	rm -rf /Applications/GHDash.app
 	cp -R $(APP) /Applications/GHDash.app
+
+# The iOS app, built for and run in the simulator.
+ios: project
+	xcodebuild -project GHDash.xcodeproj -scheme GHDashMobile -configuration Debug \
+		-destination 'generic/platform=iOS Simulator' -derivedDataPath build -quiet build
+
+ios-run: ios
+	xcrun simctl boot "$(IOS_DEVICE)" 2>/dev/null || true
+	open -a Simulator
+	xcrun simctl install "$(IOS_DEVICE)" $(IOS_APP)
+	xcrun simctl launch --terminate-running-process "$(IOS_DEVICE)" com.markuspalme.GHDashMobile $(IOS_ARGS)
+
+ios-demo: IOS_ARGS = --demo
+ios-demo: ios-run
 
 clean:
 	rm -rf build GHDash.xcodeproj

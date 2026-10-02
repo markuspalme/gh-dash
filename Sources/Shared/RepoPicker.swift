@@ -10,6 +10,15 @@ struct RepoPicker: View {
     @State private var pinned: [Repo] = []
 
     var body: some View {
+        content
+            .task {
+                pinned = store.repos
+                await store.loadAvailableRepos()
+            }
+    }
+
+    #if os(macOS)
+    private var content: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Repositories")
@@ -20,6 +29,7 @@ struct RepoPicker: View {
             .padding()
             Divider()
             list
+                .listStyle(.inset)
             Divider()
             HStack {
                 Text("\(store.repos.count) selected")
@@ -31,30 +41,39 @@ struct RepoPicker: View {
             .padding()
         }
         .frame(width: 460, height: 540)
-        .task {
-            pinned = store.repos
-            await store.loadAvailableRepos()
+    }
+    #else
+    private var content: some View {
+        NavigationStack {
+            list
+                .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always))
+                .navigationTitle("Repositories")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                    ToolbarItem(placement: .bottomBar) {
+                        Text("\(store.repos.count) selected")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
         }
     }
+    #endif
 
-    @ViewBuilder
     private var list: some View {
         let repos = matchingRepos
-        List {
+        return List {
             ForEach(repos) { repo in
-                Toggle(isOn: selection(for: repo)) {
-                    Text(repo.fullName)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .toggleStyle(.checkbox)
+                row(for: repo)
             }
             if let error = store.availableReposError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.secondary)
             }
         }
-        .listStyle(.inset)
         .overlay {
             if store.isLoadingAvailableRepos, store.availableRepos.isEmpty {
                 ProgressView("Loading repositories…")
@@ -63,6 +82,35 @@ struct RepoPicker: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    @ViewBuilder
+    private func row(for repo: Repo) -> some View {
+        let isSelected = selection(for: repo)
+        #if os(macOS)
+        Toggle(isOn: isSelected) {
+            Text(repo.fullName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .toggleStyle(.checkbox)
+        #else
+        Button {
+            isSelected.wrappedValue.toggle()
+        } label: {
+            HStack {
+                Text(repo.fullName)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                if isSelected.wrappedValue {
+                    Image(systemName: "checkmark")
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        #endif
     }
 
     private var matchingRepos: [Repo] {

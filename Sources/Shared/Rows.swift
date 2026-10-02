@@ -171,12 +171,18 @@ struct LinkRow<Content: View>: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        #if os(macOS)
         .pointerStyle(.link)
+        #endif
         .contextMenu {
             Button("Open in Browser") { openURL(url) }
             Button("Copy Link") {
+                #if os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                #else
+                UIPasteboard.general.string = url.absoluteString
+                #endif
             }
         }
     }
@@ -219,6 +225,7 @@ struct RelativeTime: View {
 }
 
 /// Lays subviews out left to right, wrapping onto new lines when out of width.
+/// A subview wider than the whole line is squeezed to fit, so its text truncates.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
@@ -227,30 +234,36 @@ struct FlowLayout: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let origins = arrange(width: bounds.width, subviews: subviews).origins
-        for (subview, origin) in zip(subviews, origins) {
-            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        let frames = arrange(width: bounds.width, subviews: subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
         }
     }
 
-    private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, origins: [CGPoint]) {
-        var origins: [CGPoint] = []
+    private func arrange(width: CGFloat, subviews: Subviews) -> (size: CGSize, frames: [CGRect]) {
+        var frames: [CGRect] = []
         var x: CGFloat = 0
         var y: CGFloat = 0
         var rowHeight: CGFloat = 0
         var usedWidth: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > width {
+                size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            }
             if x > 0, x + size.width > width {
                 x = 0
                 y += rowHeight + spacing
                 rowHeight = 0
             }
-            origins.append(CGPoint(x: x, y: y))
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
             usedWidth = max(usedWidth, x + size.width)
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
-        return (CGSize(width: usedWidth, height: y + rowHeight), origins)
+        return (CGSize(width: usedWidth, height: y + rowHeight), frames)
     }
 }

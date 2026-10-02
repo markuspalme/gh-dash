@@ -1,5 +1,8 @@
 // Draws the app icon and writes it as a 1024×1024 PNG.
-// Usage: swift scripts/make-icon.swift <output.png>
+// Usage: swift scripts/make-icon.swift <output.png> [--ios]
+//
+// The default is the macOS shape (rounded square with a shadow on a transparent
+// canvas). --ios fills the whole canvas, as iOS rounds the corners itself.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -16,16 +19,27 @@ func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ a: CGFloat = 1) -> CGColo
     CGColor(colorSpace: space, components: [r, g, b, a])!
 }
 
+let isIOS = CommandLine.arguments.contains("--ios")
+
 // Background: the standard macOS icon shape (824pt rounded square on a 1024pt canvas).
 let plate = CGRect(x: 100, y: 100, width: 824, height: 824)
-let platePath = CGPath(roundedRect: plate, cornerWidth: 186, cornerHeight: 186, transform: nil)
-
-ctx.saveGState()
-ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0, 0, 0, 0.35))
-ctx.addPath(platePath)
-ctx.setFillColor(color(0.2, 0.17, 0.6))
-ctx.fillPath()
-ctx.restoreGState()
+let platePath: CGPath
+if isIOS {
+    // Scale everything so the plate covers the canvas edge to edge.
+    let scale = CGFloat(size) / plate.width
+    ctx.translateBy(x: 512, y: 512)
+    ctx.scaleBy(x: scale, y: scale)
+    ctx.translateBy(x: -512, y: -512)
+    platePath = CGPath(rect: plate, transform: nil)
+} else {
+    platePath = CGPath(roundedRect: plate, cornerWidth: 186, cornerHeight: 186, transform: nil)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0, 0, 0, 0.35))
+    ctx.addPath(platePath)
+    ctx.setFillColor(color(0.2, 0.17, 0.6))
+    ctx.fillPath()
+    ctx.restoreGState()
+}
 
 ctx.saveGState()
 ctx.addPath(platePath)

@@ -1,65 +1,27 @@
 import Foundation
 
 enum GitHubError: LocalizedError {
-    case ghNotFound
-    case noToken(String)
     case http(status: Int, message: String)
     case graphQL(String)
 
     var errorDescription: String? {
         switch self {
-        case .ghNotFound:
-            "GitHub CLI (gh) not found. Install it and run `gh auth login`."
-        case .noToken(let detail):
-            "Could not get a token from `gh auth token`: \(detail)"
         case .http(let status, let message):
             "GitHub API error \(status): \(message)"
         case .graphQL(let message):
             "GitHub GraphQL error: \(message)"
         }
     }
-}
 
-/// Credentials come from the GitHub CLI, so the app never stores a token itself.
-enum GitHubAuth {
-    static func token() throws -> String {
-        if let token = ProcessInfo.processInfo.environment["GH_TOKEN"], !token.isEmpty {
-            return token
-        }
-        // Apps launched from Finder don't inherit the shell's PATH.
-        let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
-        guard let gh = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            throw GitHubError.ghNotFound
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: gh)
-        process.arguments = ["auth", "token"]
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        try process.run()
-        let output = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorOutput = stderr.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let token = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0, !token.isEmpty else {
-            let detail = String(decoding: errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw GitHubError.noToken(detail.isEmpty ? "not logged in" : detail)
-        }
-        return token
+    /// The token was rejected: expired, revoked, or never valid.
+    var isUnauthorized: Bool {
+        if case .http(status: 401, _) = self { return true }
+        return false
     }
 }
 
 struct GitHubClient: Sendable {
     let token: String
-
-    static func authenticated() async throws -> GitHubClient {
-        let token = try await Task.detached { try GitHubAuth.token() }.value
-        return GitHubClient(token: token)
-    }
 
     // MARK: Pull requests
 
