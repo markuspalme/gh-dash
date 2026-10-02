@@ -167,7 +167,7 @@ struct LinkRow<Content: View>: View {
         } label: {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 4)
+                .padding(.vertical, 9)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -38,13 +38,18 @@ struct PullRequest: Identifiable, Sendable {
 
     var repoName: String { repoFullName.split(separator: "/").last.map(String.init) ?? repoFullName }
 
-    /// The author has something to fix: conflicts, requested changes, or failing checks.
-    var needsAuthorAttention: Bool {
-        hasConflicts
-            || review.decision == .changesRequested
-            || !review.changesRequestedBy.isEmpty
-            || !checks.failedNames.isEmpty
+    /// What the author has to fix: conflicts, requested changes, failing checks.
+    var problems: [String] {
+        var problems: [String] = []
+        if hasConflicts { problems.append("Merge conflicts") }
+        if review.decision == .changesRequested || !review.changesRequestedBy.isEmpty {
+            problems.append("Changes requested")
+        }
+        if !checks.failedNames.isEmpty { problems.append("Checks failing") }
+        return problems
     }
+
+    var needsAuthorAttention: Bool { !problems.isEmpty }
 
     /// Nothing left for the author to do but wait for reviewers.
     var isOnlyAwaitingReview: Bool {
@@ -57,6 +62,28 @@ struct PullRequest: Identifiable, Sendable {
 
     var isFailingDependabot: Bool {
         author?.hasPrefix("dependabot") == true && !checks.failedNames.isEmpty
+    }
+}
+
+/// The user's "hide" switches, shared by the dashboard and notifications.
+struct PullRequestFilter {
+    var hideDrafts: Bool
+    var hideFailingDependabot: Bool
+
+    static let hideDraftsKey = "hideDrafts"
+    static let hideFailingDependabotKey = "hideFailingDependabot"
+
+    /// The switches as last saved; both default to on.
+    static var saved: PullRequestFilter {
+        let defaults = UserDefaults.standard
+        return PullRequestFilter(
+            hideDrafts: defaults.object(forKey: hideDraftsKey) as? Bool ?? true,
+            hideFailingDependabot: defaults.object(forKey: hideFailingDependabotKey) as? Bool ?? true
+        )
+    }
+
+    func shows(_ pullRequest: PullRequest) -> Bool {
+        !(hideDrafts && pullRequest.isDraft) && !(hideFailingDependabot && pullRequest.isFailingDependabot)
     }
 }
 

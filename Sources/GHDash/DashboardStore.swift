@@ -19,6 +19,9 @@ final class DashboardStore {
     private(set) var errorMessage: String?
 
     @ObservationIgnored private var refreshQueued = false
+    /// Ids of the things waiting on the user after the last load, and the
+    /// repositories that load covered; nil until the first load.
+    @ObservationIgnored private var knownAttention: (ids: Set<String>, repos: [Repo])?
     private static let reposKey = "selectedRepos"
     /// Demo mode shows `DemoData` and never touches GitHub or the saved selection.
     private let isDemo: Bool
@@ -140,6 +143,80 @@ final class DashboardStore {
         errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
         if errors.count < 2 {
             lastUpdated = .now
+        }
+        if errors.isEmpty {
+            notifyAboutNewAttentionItems(in: repos)
+        }
+    }
+
+    // MARK: Notifications
+
+    private struct AttentionItem {
+        let id: String
+        let title: String
+        let subtitle: String
+        let body: String
+        let url: URL
+        /// False when one of the "hide" switches keeps it off the dashboard.
+        let isVisible: Bool
+    }
+
+    /// Everything waiting on the user: review requests, their own pull requests
+    /// that need fixing, and deployments they can approve.
+    private var attentionItems: [AttentionItem] {
+        let filter = PullRequestFilter.saved
+        let reviews = reviewRequests.map { pullRequest in
+            AttentionItem(
+                id: "review:\(pullRequest.id)",
+                title: "Review requested",
+                subtitle: pullRequest.title,
+                body: "\(pullRequest.repoName) #\(pullRequest.number) by \(pullRequest.author ?? "unknown")",
+                url: pullRequest.url,
+                isVisible: filter.shows(pullRequest)
+            )
+        }
+        let fixes = myPullRequests.filter(\.needsAuthorAttention).map { pullRequest in
+            AttentionItem(
+                id: "fix:\(pullRequest.id)",
+                title: pullRequest.problems.joined(separator: ", "),
+                subtitle: pullRequest.title,
+                body: "\(pullRequest.repoName) #\(pullRequest.number)",
+                url: pullRequest.url,
+                isVisible: filter.shows(pullRequest)
+            )
+        }
+        let approvals = pendingRuns.filter(\.canApprove).map { run in
+            AttentionItem(
+                id: "approve:\(run.id)",
+                title: "Deployment awaiting your approval",
+                subtitle: "\(run.workflowName) #\(run.runNumber)",
+                body: "\(run.repo.name) · \(run.pendingEnvironments.map(\.name).joined(separator: ", "))",
+                url: run.url,
+                isVisible: true
+            )
+        }
+        return reviews + fixes + approvals
+    }
+
+    /// Notifies about items that were not waiting on the user after the previous load.
+    private func notifyAboutNewAttentionItems(in repos: [Repo]) {
+        let items = attentionItems
+        let previous = knownAttention
+        knownAttention = (Set(items.map(\.id)), repos)
+        // The first load, and the first one after the repository selection
+        // changed, only set the baseline: nothing in them is news.
+        guard let previous, previous.repos == repos else { return }
+
+        let new = items.filter { $0.isVisible && !previous.ids.contains($0.id) }
+        if new.count > 3 {
+            Notifier.shared.post(
+                title: "\(new.count) new items waiting on you",
+                body: new.prefix(3).map(\.subtitle).joined(separator: "\n")
+            )
+        } else {
+            for item in new {
+                Notifier.shared.post(title: item.title, subtitle: item.subtitle, body: item.body, url: item.url)
+            }
         }
     }
 }

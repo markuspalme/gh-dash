@@ -3,8 +3,8 @@ import SwiftUI
 struct ContentView: View {
     let store: DashboardStore
     @Environment(\.openURL) private var openURL
-    @AppStorage("hideDrafts") private var hideDrafts = true
-    @AppStorage("hideFailingDependabot") private var hideFailingDependabot = true
+    @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
+    @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
     /// Full name of the repository the dashboard is scoped to; empty for all.
     @AppStorage("scopedRepo") private var scopedRepoName = ""
     /// Newline-separated ids of the sections the user has collapsed.
@@ -80,27 +80,36 @@ struct ContentView: View {
     // MARK: Dashboard
 
     private var dashboard: some View {
-        List {
-            if store.lastUpdated != nil {
-                pullRequestSection(
-                    "My open pull requests", id: "mine",
-                    store.myPullRequests.filter { !$0.isOnlyAwaitingReview },
-                    showAuthor: false
-                )
-                pullRequestSection(
-                    "Awaiting your review", id: "review",
-                    store.reviewRequests,
-                    showAuthor: true
-                )
-                pullRequestSection(
-                    "My pull requests waiting on reviewers", id: "waiting",
-                    store.myPullRequests.filter(\.isOnlyAwaitingReview),
-                    showAuthor: false
-                )
-                pendingRunSections
+        // A plain stack, not a List: in this split view's detail column, List
+        // clipped rows to their first line when the data arrived after launch.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if store.lastUpdated != nil {
+                    pullRequestSection(
+                        "My open pull requests", id: "mine",
+                        store.myPullRequests.filter { !$0.isOnlyAwaitingReview },
+                        showAuthor: false
+                    )
+                    pullRequestSection(
+                        "Awaiting your review", id: "review",
+                        store.reviewRequests,
+                        showAuthor: true
+                    )
+                    pullRequestSection(
+                        "My pull requests waiting on reviewers", id: "waiting",
+                        store.myPullRequests.filter(\.isOnlyAwaitingReview),
+                        showAuthor: false
+                    )
+                    pendingRunSections
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Keyed on the stored value: a change that arrives through
+            // AppStorage does not carry a withAnimation transaction.
+            .animation(.easeInOut(duration: 0.2), value: collapsedSections)
         }
-        .listStyle(.inset)
         .overlay {
             if store.repos.isEmpty {
                 ContentUnavailableView {
@@ -163,9 +172,8 @@ struct ContentView: View {
     }
 
     private func visible(_ pullRequests: [PullRequest]) -> [PullRequest] {
-        pullRequests.filter {
-            !(hideDrafts && $0.isDraft) && !(hideFailingDependabot && $0.isFailingDependabot)
-        }
+        let filter = PullRequestFilter(hideDrafts: hideDrafts, hideFailingDependabot: hideFailingDependabot)
+        return pullRequests.filter(filter.shows)
     }
 
     private func pullRequests(_ pullRequests: [PullRequest], in repo: Repo?) -> [PullRequest] {
@@ -204,7 +212,6 @@ struct ContentView: View {
     private func pullRequestSection(
         _ title: String, id: String, _ all: [PullRequest], showAuthor: Bool
     ) -> some View {
-        let isExpanded = isExpanded(id)
         let pullRequests = pullRequests(all, in: scope)
         let visible = visible(pullRequests)
         let hiddenDrafts = hideDrafts ? pullRequests.filter(\.isDraft).count : 0
@@ -216,20 +223,19 @@ struct ContentView: View {
         if hiddenDependabot > 0 {
             notes.append("\(hiddenDependabot) failing Dependabot hidden")
         }
-        return Section(isExpanded: isExpanded) {
+        return DashboardSection(
+            title: title,
+            count: visible.count,
+            isExpanded: isExpanded(id),
+            note: notes.isEmpty ? nil : notes.joined(separator: ", ")
+        ) {
             if visible.isEmpty {
                 EmptyRow(text: "None")
             }
             ForEach(visible) { pullRequest in
                 PullRequestRow(pullRequest: pullRequest, showAuthor: showAuthor)
+                Divider()
             }
-        } header: {
-            SectionHeader(
-                title: title,
-                count: visible.count,
-                isExpanded: isExpanded,
-                note: notes.isEmpty ? nil : notes.joined(separator: ", ")
-            )
         }
     }
 
@@ -237,28 +243,23 @@ struct ContentView: View {
     private var pendingRunSections: some View {
         let repos = scope.map { [$0] } ?? store.repos
         if !store.pendingRuns.contains(where: { repos.contains($0.repo) }) {
-            let isExpanded = isExpanded("runs")
-            Section(isExpanded: isExpanded) {
+            DashboardSection(title: "Pending actions", count: 0, isExpanded: isExpanded("runs")) {
                 EmptyRow(text: "No pending workflow runs")
-            } header: {
-                SectionHeader(title: "Pending actions", count: 0, isExpanded: isExpanded)
             }
         }
         ForEach(repos) { repo in
             let runs = store.pendingRuns.filter { $0.repo == repo }
             if !runs.isEmpty {
-                let isExpanded = isExpanded("runs:\(repo.fullName)")
-                Section(isExpanded: isExpanded) {
+                DashboardSection(
+                    title: "Pending actions · \(repo.name)",
+                    count: runs.count,
+                    isExpanded: isExpanded("runs:\(repo.fullName)"),
+                    link: repo.actionsURL
+                ) {
                     ForEach(runs) { run in
                         WorkflowRunRow(run: run)
+                        Divider()
                     }
-                } header: {
-                    SectionHeader(
-                        title: "Pending actions · \(repo.name)",
-                        count: runs.count,
-                        isExpanded: isExpanded,
-                        link: repo.actionsURL
-                    )
                 }
             }
         }
@@ -281,6 +282,34 @@ private struct ToolbarSwitch: View {
     }
 }
 
+/// A collapsible group of rows under a header.
+private struct DashboardSection<Rows: View>: View {
+    let title: String
+    let count: Int
+    @Binding var isExpanded: Bool
+    var note: String?
+    var link: URL?
+    @ViewBuilder var rows: Rows
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title: title, count: count, isExpanded: $isExpanded, note: note, link: link)
+            Divider()
+            // Collapsed rows stay in the hierarchy at zero height, so the
+            // section folds shut instead of popping out of the layout.
+            VStack(alignment: .leading, spacing: 0) {
+                rows
+            }
+            .frame(height: isExpanded ? nil : 0, alignment: .top)
+            .clipped()
+            .opacity(isExpanded ? 1 : 0)
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
+        }
+        .padding(.bottom, 22)
+    }
+}
+
 private struct SectionHeader: View {
     let title: String
     let count: Int
@@ -291,9 +320,7 @@ private struct SectionHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isExpanded.toggle()
-                }
+                isExpanded.toggle()
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.right")
@@ -326,7 +353,7 @@ private struct SectionHeader: View {
                 .pointerStyle(.link)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 }
 
@@ -336,7 +363,7 @@ private struct EmptyRow: View {
     var body: some View {
         Text(text)
             .foregroundStyle(.secondary)
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
     }
 }
 
