@@ -73,8 +73,12 @@ struct PullRequest: Identifiable, Sendable {
             && (review.decision == .reviewRequired || !review.waitingOn.isEmpty)
     }
 
+    var isDependabot: Bool {
+        author?.hasPrefix("dependabot") == true
+    }
+
     var isFailingDependabot: Bool {
-        author?.hasPrefix("dependabot") == true && !checks.failedNames.isEmpty
+        isDependabot && !checks.failedNames.isEmpty
     }
 }
 
@@ -82,21 +86,41 @@ struct PullRequest: Identifiable, Sendable {
 struct PullRequestFilter {
     var hideDrafts: Bool
     var hideFailingDependabot: Bool
+    /// Hides every Dependabot pull request, failing or not. Off by default.
+    var hideDependabot = false
 
     static let hideDraftsKey = "hideDrafts"
     static let hideFailingDependabotKey = "hideFailingDependabot"
+    static let hideDependabotKey = "hideDependabot"
 
-    /// The switches as last saved; both default to on.
+    /// The switches as last saved.
     static var saved: PullRequestFilter {
         let defaults = UserDefaults.standard
         return PullRequestFilter(
             hideDrafts: defaults.object(forKey: hideDraftsKey) as? Bool ?? true,
-            hideFailingDependabot: defaults.object(forKey: hideFailingDependabotKey) as? Bool ?? true
+            hideFailingDependabot: defaults.object(forKey: hideFailingDependabotKey) as? Bool ?? true,
+            hideDependabot: defaults.bool(forKey: hideDependabotKey)
         )
     }
 
     func shows(_ pullRequest: PullRequest) -> Bool {
-        !(hideDrafts && pullRequest.isDraft) && !(hideFailingDependabot && pullRequest.isFailingDependabot)
+        !(hideDrafts && pullRequest.isDraft)
+            && !(hideDependabot && pullRequest.isDependabot)
+            && !(hideFailingDependabot && pullRequest.isFailingDependabot)
+    }
+
+    /// "1 draft, 3 Dependabot hidden" for a section, or nil when nothing is hidden.
+    func hiddenNote(for pullRequests: [PullRequest]) -> String? {
+        let hiddenDrafts = hideDrafts ? pullRequests.filter(\.isDraft).count : 0
+        let hiddenDependabot = pullRequests.count - pullRequests.filter(shows).count - hiddenDrafts
+        var notes: [String] = []
+        if hiddenDrafts > 0 {
+            notes.append("\(hiddenDrafts) \(hiddenDrafts == 1 ? "draft" : "drafts")")
+        }
+        if hiddenDependabot > 0 {
+            notes.append("\(hiddenDependabot) \(hideDependabot ? "Dependabot" : "failing Dependabot")")
+        }
+        return notes.isEmpty ? nil : notes.joined(separator: ", ") + " hidden"
     }
 }
 

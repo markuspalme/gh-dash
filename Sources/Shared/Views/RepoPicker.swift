@@ -123,7 +123,9 @@ struct RepoPicker: View {
     }
 
     private var matchingRepos: [Repo] {
-        let all = pinned + store.availableRepos.filter { !pinned.contains($0) }
+        let rest = store.availableRepos.filter { !pinned.contains($0) }
+            .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
+        let all = pinned + rest
         guard !search.isEmpty else { return all }
         return all.filter { $0.fullName.localizedCaseInsensitiveContains(search) }
     }

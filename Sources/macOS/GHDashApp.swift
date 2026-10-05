@@ -5,6 +5,7 @@ struct GHDashApp: App {
     @State private var store: DashboardStore
     @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
     @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
+    @AppStorage(PullRequestFilter.hideDependabotKey) private var hideDependabot = false
 
     init() {
         let isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
@@ -29,6 +30,7 @@ struct GHDashApp: App {
             CommandGroup(before: .toolbar) {
                 Toggle("Hide Drafts", isOn: $hideDrafts)
                 Toggle("Hide Failing Dependabot", isOn: $hideFailingDependabot)
+                Toggle("Hide All Dependabot", isOn: $hideDependabot)
                 Divider()
             }
         }

@@ -3,7 +3,9 @@ APP := build/Build/Products/Release/GHDash.app
 IOS_APP := build/Build/Products/Debug-iphonesimulator/GHDashMobile.app
 IOS_DEVICE ?= iPhone 17 Pro
 
-.PHONY: project build run demo install ios ios-run ios-demo clean
+TUI := build/Build/Products/Release/ghdash
+
+.PHONY: project build run demo install ios ios-run ios-demo tui tui-run tui-demo install-tui clean
 
 project:
 	xcodegen generate --quiet
@@ -38,6 +40,21 @@ ios-run: ios
 
 ios-demo: IOS_ARGS = --demo
 ios-demo: ios-run
+
+# The terminal app. Plugin validation is skipped because a dependency of
+# TermKit declares a build plugin that Xcode would otherwise ask about.
+tui: project
+	xcodebuild -project GHDash.xcodeproj -scheme ghdash -configuration Release \
+		-derivedDataPath build -skipPackagePluginValidation -skipMacroValidation -quiet build
+
+tui-run: tui
+	$(TUI) $(TUI_ARGS)
+
+tui-demo: TUI_ARGS = --demo
+tui-demo: tui-run
+
+install-tui: tui
+	install -m 755 $(TUI) /usr/local/bin/ghdash
 
 clean:
 	rm -rf build GHDash.xcodeproj

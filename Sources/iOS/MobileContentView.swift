@@ -7,6 +7,7 @@ struct MobileContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
     @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
+    @AppStorage(PullRequestFilter.hideDependabotKey) private var hideDependabot = false
     /// Full name of the selected repository, "" for all of them, and nil
     /// while an iPhone is showing the repository list.
     @State private var selection: String? = ""
@@ -32,7 +33,7 @@ struct MobileContentView: View {
     }
 
     private var filter: PullRequestFilter {
-        PullRequestFilter(hideDrafts: hideDrafts, hideFailingDependabot: hideFailingDependabot)
+        PullRequestFilter(hideDrafts: hideDrafts, hideFailingDependabot: hideFailingDependabot, hideDependabot: hideDependabot)
     }
 
     private var scope: Repo? {
@@ -81,6 +82,7 @@ struct MobileContentView: View {
                 Menu {
                     Toggle("Hide Drafts", isOn: $hideDrafts)
                     Toggle("Hide Failing Dependabot", isOn: $hideFailingDependabot)
+                    Toggle("Hide All Dependabot", isOn: $hideDependabot)
                 } label: {
                     Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
                 }

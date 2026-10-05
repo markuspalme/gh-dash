@@ -1,6 +1,25 @@
 import Foundation
 import Observation
 
+/// Where the chosen repositories are kept between launches.
+protocol RepoSelectionStorage {
+    func load() -> [Repo]
+    func save(_ repos: [Repo])
+}
+
+/// The apps keep the selection in their UserDefaults.
+struct UserDefaultsRepoStorage: RepoSelectionStorage {
+    private static let key = "selectedRepos"
+
+    func load() -> [Repo] {
+        (UserDefaults.standard.stringArray(forKey: Self.key) ?? []).compactMap(Repo.init(fullName:))
+    }
+
+    func save(_ repos: [Repo]) {
+        UserDefaults.standard.set(repos.map(\.fullName), forKey: Self.key)
+    }
+}
+
 @MainActor
 @Observable
 final class DashboardStore {
@@ -24,9 +43,9 @@ final class DashboardStore {
     /// Ids of the things waiting on the user after the last load, and the
     /// repositories that load covered; nil until the first load.
     @ObservationIgnored private var knownAttention: (ids: Set<String>, repos: [Repo])?
-    private static let reposKey = "selectedRepos"
     /// Demo mode shows `DemoData` and never touches GitHub or the saved selection.
     private let isDemo: Bool
+    private let repoStorage: RepoSelectionStorage
     /// Where the GitHub token comes from: the GitHub CLI on the Mac, the
     /// personal access token the user signed in with on iOS.
     private let token: @Sendable () async throws -> String
@@ -36,15 +55,15 @@ final class DashboardStore {
     /// Called when GitHub rejects the token.
     @ObservationIgnored var onUnauthorized: (() -> Void)?
 
-    init(demo: Bool = false, token: @escaping @Sendable () async throws -> String) {
+    init(
+        demo: Bool = false,
+        token: @escaping @Sendable () async throws -> String,
+        repoStorage: RepoSelectionStorage = UserDefaultsRepoStorage()
+    ) {
         isDemo = demo
         self.token = token
-        guard !demo else {
-            repos = DemoData.repos
-            return
-        }
-        let stored = UserDefaults.standard.stringArray(forKey: Self.reposKey) ?? []
-        repos = stored.compactMap(Repo.init(fullName:))
+        self.repoStorage = repoStorage
+        repos = demo ? DemoData.repos : repoStorage.load()
     }
 
     // MARK: Repository selection
@@ -61,7 +80,7 @@ final class DashboardStore {
             pendingRuns.removeAll { $0.repo == repo }
         }
         if !isDemo {
-            UserDefaults.standard.set(repos.map(\.fullName), forKey: Self.reposKey)
+            repoStorage.save(repos)
         }
     }
 
@@ -214,8 +233,9 @@ final class DashboardStore {
     }
 
     /// Everything worth a notification when it first appears: review requests,
-    /// each reason one of the user's own pull requests needs them again,
-    /// pending workflow runs, and deployments the user can approve.
+    /// each reason one of the user's own pull requests needs them again, and
+    /// deployments the user can approve. Workflow runs that need nothing from
+    /// the user are shown on the dashboard but never announced.
     private var attentionItems: [AttentionItem] {
         let filter = PullRequestFilter.saved
         let reviews = reviewRequests.map { pullRequest in
@@ -252,17 +272,7 @@ final class DashboardStore {
                 isVisible: true
             )
         }
-        let runs = pendingRuns.map { run in
-            AttentionItem(
-                id: "run:\(run.id)",
-                title: "New workflow run",
-                subtitle: "\(run.workflowName) #\(run.runNumber)",
-                body: "\(run.repo.name) · \(run.title)",
-                url: run.url,
-                isVisible: true
-            )
-        }
-        return reviews + fixes + approvals + runs
+        return reviews + fixes + approvals
     }
 
     /// Notifies about items that were not there after the previous load.
@@ -275,9 +285,6 @@ final class DashboardStore {
         guard let previous, previous.repos == repos else { return }
 
         var new = items.filter { $0.isVisible && !previous.ids.contains($0.id) }
-        // A run that is new and already awaiting approval gets one notification, not two.
-        let newApprovals = Set(new.map(\.id).filter { $0.hasPrefix("approve:") })
-        new.removeAll { $0.id.hasPrefix("run:") && newApprovals.contains("approve:" + $0.id.dropFirst(4)) }
         // Several new reasons on one pull request become a single notification.
         new = new.reduce(into: []) { merged, item in
             if let index = merged.firstIndex(where: { $0.url == item.url }) {

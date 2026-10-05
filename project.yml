@@ -4,6 +4,16 @@ options:
     macOS: "15.0"
     iOS: "18.0"
   createIntermediateGroups: true
+packages:
+  TermKit:
+    url: https://github.com/migueldeicaza/TermKit
+    # No tagged releases; pinned to a commit on main.
+    revision: 2cdfc96f9c524251ae1f517a440f28150182b7c2
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    # TermKit depends on SwiftTerm; releases after 1.11 ship a Metal shader
+    # that Xcode can only build with the Metal toolchain installed.
+    exactVersion: 1.11.2
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
@@ -47,3 +57,22 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         # Running on a device needs your own team: set DEVELOPMENT_TEAM here or in Xcode.
         CODE_SIGN_STYLE: Automatic
+  ghdash:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/Shared/Core
+      - Sources/TUI
+      - path: Sources/macOS/GitHubCLI.swift
+    dependencies:
+      - package: TermKit
+      - package: SwiftTerm
+    settings:
+      base:
+        PRODUCT_NAME: ghdash
+        # TermKit's views are plain classes; subclassing them under Swift 6's
+        # strict concurrency checking is more fight than it is worth.
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"

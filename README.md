@@ -11,7 +11,7 @@ A small native dashboard, for macOS and iOS, for your GitHub work across the rep
 It shows:
 
 - **My open pull requests** – with draft, review, approval, check, conflict and unresolved-thread status
-- **Awaiting your review** – pull requests where your review is requested
+- **Awaiting your review** – pull requests where your review is requested, plus Dependabot pull requests that nobody has been asked to review yet
 - **My pull requests waiting on reviewers** – your pull requests with nothing left for you to do
 - **Pending actions** – GitHub Actions runs that have not finished, including deployments waiting for approval
 
@@ -48,7 +48,7 @@ On first launch, pick the repositories to show with **Choose Repositories…**.
 The iPhone and iPad app shows the same dashboard as the Mac app: the same four sections, collapsible, with every row opening the pull request or workflow run on GitHub. It needs iOS 18 or later.
 
 - **Repositories** – the dashboard opens on all repositories; the back button leads to the repository list with item counts, where you can scope to one repository, choose which repositories to show, or sign out. On an iPad that list is a sidebar.
-- **Filters** – the filter button hides drafts and failing Dependabot pull requests, as the filter menu does on the Mac.
+- **Filters** – the filter button hides drafts, failing Dependabot pull requests, or all Dependabot pull requests, as the filter menu does on the Mac.
 - **Refreshing** – pull down to refresh; the app also refreshes every three minutes while it is open.
 - **Not on iOS** – notifications and an app-icon badge.
 
@@ -90,6 +90,19 @@ make ios-demo  # the same, with made-up data and no sign-in
 
 `IOS_DEVICE="iPad (A16)" make ios-run` picks another simulator. To run on a real device, open the project in Xcode and choose your team for the `GHDashMobile` target.
 
+## Terminal
+
+`ghdash` is the same dashboard for the terminal, built with [TermKit](https://github.com/migueldeicaza/TermKit): a repository list with item counts on the left, the four collapsible sections on the right, one line per pull request or workflow run with its badges, and a status bar with the hotkeys. It signs in through the GitHub CLI like the Mac app.
+
+```sh
+make tui-run      # build and run
+make tui-demo     # run with made-up data
+make install-tui  # copy to /usr/local/bin/ghdash
+ghdash --repo owner/name --repo owner/other   # these repositories, for this run only
+```
+
+Keys: `j`/`k` or the arrows move, `Enter` opens the row on GitHub or folds a section, `Space` folds the section, `Tab` switches between the repository list and the dashboard, `r` refreshes, `d`, `b` and `B` toggle the filters (drafts, failing Dependabot, all Dependabot), `p` chooses repositories, `q` quits, and the menu bar (`F9`) has the same commands. Inside a [herdr](https://herdr.dev) pane the app reports itself as blocked while something is waiting on you and idle otherwise, so the pane list shows it without a badge. The terminal app keeps its own settings in `~/.config/ghdash/config.json`, separate from the Mac app's: its repositories, filters, folded sections and scope.
+
 ## Project
 
-The Xcode project is generated from `project.yml`; run `make project` to open it in Xcode. Code shared by both apps is in `Sources/Shared`, with `Sources/macOS` and `Sources/iOS` holding what differs. The app icons are drawn by `scripts/make-icon.swift`.
+The Xcode project is generated from `project.yml`; run `make project` to open it in Xcode. The data layer shared by all three is in `Sources/Shared/Core`, the SwiftUI views shared by the two apps in `Sources/Shared/Views`, and `Sources/macOS`, `Sources/iOS` and `Sources/TUI` hold what differs. The terminal target pins TermKit to a commit, as it has no releases, and SwiftTerm to 1.11.2, the last release that builds without Apple's Metal toolchain. The app icons are drawn by `scripts/make-icon.swift`.

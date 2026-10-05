@@ -78,20 +78,11 @@ struct DashboardView: View {
     ) -> some View {
         let pullRequests = store.pullRequests(all, in: scope)
         let visible = pullRequests.filter(filter.shows)
-        let hiddenDrafts = filter.hideDrafts ? pullRequests.filter(\.isDraft).count : 0
-        let hiddenDependabot = pullRequests.count - visible.count - hiddenDrafts
-        var notes: [String] = []
-        if hiddenDrafts > 0 {
-            notes.append("\(hiddenDrafts) \(hiddenDrafts == 1 ? "draft" : "drafts") hidden")
-        }
-        if hiddenDependabot > 0 {
-            notes.append("\(hiddenDependabot) failing Dependabot hidden")
-        }
         return DashboardSection(
             title: title,
             count: visible.count,
             isExpanded: isExpanded(id),
-            note: notes.isEmpty ? nil : notes.joined(separator: ", ")
+            note: filter.hiddenNote(for: pullRequests)
         ) {
             if visible.isEmpty {
                 EmptyRow(text: "None")

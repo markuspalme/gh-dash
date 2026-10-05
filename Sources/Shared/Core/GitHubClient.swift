@@ -37,6 +37,7 @@ struct GitHubClient: Sendable {
         let variables = [
             "mine": "\(scope) author:@me",
             "review": "\(scope) review-requested:@me",
+            "dependabot": "\(scope) author:app/dependabot",
         ]
         // Team names need the read:org scope. A token without it (a personal
         // access token with just `repo`) still gets everything else.
@@ -51,7 +52,16 @@ struct GitHubClient: Sendable {
                 .filter { selected.contains($0.repoFullName.lowercased()) }
                 .sorted { $0.updatedAt > $1.updatedAt }
         }
-        return (pullRequests(data.mine.items), pullRequests(data.review.items))
+        // Dependabot pull requests nobody was asked to review would otherwise
+        // sit unseen; treat them as awaiting the user's review until someone approves.
+        let requested = pullRequests(data.review.items)
+        let unassignedDependabot = pullRequests(data.dependabot.items).filter { pullRequest in
+            pullRequest.review.waitingOn.isEmpty
+                && pullRequest.review.decision != .approved
+                && !requested.contains { $0.id == pullRequest.id }
+        }
+        let review = (requested + unassignedDependabot).sorted { $0.updatedAt > $1.updatedAt }
+        return (pullRequests(data.mine.items), review)
     }
 
     private func searchPullRequests(_ variables: [String: String], teamNames: Bool) async throws -> PullRequestSearch {
@@ -97,9 +107,10 @@ struct GitHubClient: Sendable {
             } } } } }
           }
         }
-        query($mine: String!, $review: String!) {
+        query($mine: String!, $review: String!, $dependabot: String!) {
           mine: search(query: $mine, type: ISSUE, first: 100) { nodes { ...PR } }
           review: search(query: $review, type: ISSUE, first: 100) { nodes { ...PR } }
+          dependabot: search(query: $dependabot, type: ISSUE, first: 100) { nodes { ...PR } }
         }
         """
     }
@@ -254,6 +265,7 @@ private struct Connection<Node: Decodable>: Decodable {
 private struct PullRequestSearch: Decodable {
     let mine: Connection<PullRequestNode>
     let review: Connection<PullRequestNode>
+    let dependabot: Connection<PullRequestNode>
 }
 
 private struct PullRequestNode: Decodable {
