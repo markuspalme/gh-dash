@@ -92,6 +92,10 @@ make ios-demo  # the same, with made-up data and no sign-in
 
 ## Terminal
 
+![ghdash in a terminal, showing the repository list, the dashboard sections and the status bar](docs/screenshot-tui.png)
+
+*The terminal app in demo mode.*
+
 `ghdash` is the same dashboard for the terminal, built with [TermKit](https://github.com/migueldeicaza/TermKit): a repository list with item counts on the left, the four collapsible sections on the right, one line per pull request or workflow run with its badges, and a status bar with the hotkeys. It signs in through the GitHub CLI like the Mac app.
 
 ```sh
