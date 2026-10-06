@@ -16,10 +16,13 @@ final class JiraStore {
 
     @ObservationIgnored private var refreshQueued = false
     @ObservationIgnored private let mcp = AtlassianMCP()
+    /// Changelogs already fetched, keyed by issue; refetched when the issue's `updated` moves.
+    @ObservationIgnored private var changeCache: [String: (updated: Date, changes: [JiraClient.Change])] = [:]
     /// Demo mode shows `JiraDemoData` and never talks to Atlassian or touches the saved settings.
     private let isDemo: Bool
     private static let siteKey = "jiraSite"
     private static let projectsKey = "jiraProjects"
+    private static let sprintFieldKey = "jiraSprintField"
     /// How far back the activity feed looks.
     static let activityWindow: TimeInterval = 7 * 86400
 
@@ -61,7 +64,7 @@ final class JiraStore {
         isSignedIn = true
         await logToolCatalogue()
         guard let site = config.site else { return "" }
-        return try await JiraClient(site: site, mcp: mcp).fetchMyself()
+        return try await JiraClient(site: site, mcp: mcp, sprintField: nil).fetchMyself()
     }
 
     func signOut() {
@@ -121,20 +124,25 @@ final class JiraStore {
             errorMessage = nil
             return
         }
-        let client = JiraClient(site: site, mcp: mcp)
+        let client = JiraClient(site: site, mcp: mcp, sprintField: UserDefaults.standard.string(forKey: Self.sprintFieldKey))
         let projects = config.projects
-        async let activity = client.fetchActivity(projects: projects, since: Date.now.addingTimeInterval(-Self.activityWindow))
+        let since = Date.now.addingTimeInterval(-Self.activityWindow)
+        async let recent = client.fetchRecentIssues(projects: projects, since: since)
         async let assigned = client.fetchAssignedIssues(projects: projects)
         var errors: [String] = []
         var signedOut = false
         do {
-            self.activity = try await activity
+            self.activity = try await events(from: try await recent, since: since, client: client)
         } catch {
             errors.append("Activity: \(error.localizedDescription)")
             signedOut = (error as? AtlassianMCP.Failure)?.isUnauthorized ?? false
         }
         do {
-            self.assigned = try await assigned
+            let (issues, sprintField) = try await assigned
+            self.assigned = issues
+            if let sprintField {
+                UserDefaults.standard.set(sprintField, forKey: Self.sprintFieldKey)
+            }
         } catch {
             errors.append("Tickets: \(error.localizedDescription)")
             signedOut = signedOut || (error as? AtlassianMCP.Failure)?.isUnauthorized ?? false
@@ -146,5 +154,39 @@ final class JiraStore {
         if errors.count < 2 {
             lastUpdated = .now
         }
+    }
+
+    /// Turns recently updated issues into feed entries: creation, comments,
+    /// and the status and assignee changes from each issue's changelog.
+    private func events(from recent: [JiraClient.RecentIssue], since: Date, client: JiraClient) async throws -> [JiraEvent] {
+        // Changelogs need one call per issue; only refetch issues that changed.
+        let stale = recent.filter { changeCache[$0.issue.key]?.updated != $0.issue.updated }
+        try await withThrowingTaskGroup(of: (String, Date, [JiraClient.Change]).self) { group in
+            for item in stale {
+                group.addTask { (item.issue.key, item.issue.updated, try await client.fetchChanges(of: item.issue.key)) }
+            }
+            for try await (key, updated, changes) in group {
+                changeCache[key] = (updated, changes)
+            }
+        }
+        changeCache = changeCache.filter { entry in recent.contains { $0.issue.key == entry.key } }
+
+        var events: [JiraEvent] = []
+        for item in recent {
+            let issue = item.issue
+            if issue.created >= since {
+                events.append(JiraEvent(id: "\(issue.key):created", date: issue.created, actor: item.creator, kind: .created, issue: issue))
+            }
+            for comment in item.comments where comment.date >= since {
+                events.append(JiraEvent(id: "\(issue.key):comment:\(comment.id)", date: comment.date, actor: comment.author, kind: .commented(excerpt: comment.text), issue: issue))
+            }
+            for change in changeCache[issue.key]?.changes ?? [] where change.date >= since {
+                let kind: JiraEvent.Kind = change.field == "status"
+                    ? .statusChanged(from: change.from ?? "", to: change.to ?? "")
+                    : .assigned(to: change.to ?? "nobody")
+                events.append(JiraEvent(id: "\(issue.key):\(change.id)", date: change.date, actor: change.author, kind: kind, issue: issue))
+            }
+        }
+        return events.sorted { $0.date > $1.date }
     }
 }

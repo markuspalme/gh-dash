@@ -15,6 +15,12 @@ struct JiraIssue: Identifiable, Sendable {
         case new, indeterminate, done, unknown
     }
 
+    struct Sprint: Hashable, Sendable {
+        let name: String
+        /// "active", "future" or "closed".
+        let state: String
+    }
+
     let key: String
     let summary: String
     let status: String
@@ -25,6 +31,7 @@ struct JiraIssue: Identifiable, Sendable {
     let created: Date
     let updated: Date
     let url: URL
+    var sprint: Sprint?
 
     var id: String { key }
     var projectKey: String { String(key.prefix { $0 != "-" }) }

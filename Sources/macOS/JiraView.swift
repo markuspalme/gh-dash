@@ -175,10 +175,55 @@ struct JiraView: View {
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 8)
         }
-        ForEach(tickets) { issue in
-            JiraIssueRow(issue: issue)
+        ForEach(Self.groupedBySprint(tickets), id: \.title) { group in
+            HStack(spacing: 6) {
+                Text(group.title)
+                    .font(.headline)
+                Text(verbatim: "\(group.issues.count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if let note = group.note {
+                    Text("· \(note)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 8)
             Divider()
+            ForEach(group.issues) { issue in
+                JiraIssueRow(issue: issue)
+                Divider()
+            }
+            Spacer().frame(height: 22)
         }
+    }
+
+    struct SprintGroup {
+        let title: String
+        let note: String?
+        let issues: [JiraIssue]
+    }
+
+    /// Active sprints first, then future ones, then everything without a sprint.
+    static func groupedBySprint(_ issues: [JiraIssue]) -> [SprintGroup] {
+        let bySprint = Dictionary(grouping: issues) { $0.sprint }
+        func rank(_ sprint: JiraIssue.Sprint?) -> Int {
+            switch sprint?.state {
+            case "active": 0
+            case "future": 1
+            case nil: 3
+            default: 2
+            }
+        }
+        return bySprint.keys
+            .sorted { (rank($0), $0?.name ?? "") < (rank($1), $1?.name ?? "") }
+            .map { sprint in
+                SprintGroup(
+                    title: sprint?.name ?? "No sprint",
+                    note: sprint.map { $0.state.isEmpty ? nil : $0.state } ?? nil,
+                    issues: bySprint[sprint] ?? []
+                )
+            }
     }
 }
 
