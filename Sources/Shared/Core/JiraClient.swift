@@ -2,34 +2,29 @@ import Foundation
 
 enum JiraError: LocalizedError {
     case notConfigured
-    case http(status: Int, message: String)
+    case siteNotAccessible(String)
 
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            "Jira is not set up: add your site, email and API token."
-        case .http(let status, let message):
-            "Jira API error \(status): \(message)"
+            "Jira is not set up: add your site and sign in to Atlassian."
+        case .siteNotAccessible(let host):
+            "Your Atlassian account has no access to \(host)."
         }
-    }
-
-    var isUnauthorized: Bool {
-        if case .http(let status, _) = self { return status == 401 || status == 403 }
-        return false
     }
 }
 
-/// A thin client for the Jira Cloud REST API v3, authenticated with an
-/// Atlassian API token (basic auth with the account's email).
+/// Jira data through Atlassian's MCP server, whose tools wrap the Jira
+/// Cloud REST API and return its JSON.
 struct JiraClient: Sendable {
     let site: URL
-    let email: String
-    let token: String
+    let mcp: AtlassianMCP
 
-    /// The signed-in account's display name; fails if the credentials are wrong.
+    /// The signed-in account's display name; fails if the sign-in is gone.
     func fetchMyself() async throws -> String {
-        let me: Myself = try await send(request(path: "rest/api/3/myself"))
-        return me.displayName
+        let info = try await mcp.call("atlassianUserInfo", arguments: Data("{}".utf8))
+        let dictionary = (try? JSONSerialization.jsonObject(with: info)) as? [String: Any] ?? [:]
+        return (dictionary["name"] ?? dictionary["displayName"] ?? dictionary["email"]) as? String ?? "unknown"
     }
 
     /// The caller's open issues in `projects`, most recently updated first.
@@ -91,28 +86,31 @@ struct JiraClient: Sendable {
 
     private static let issueFields = ["summary", "status", "issuetype", "priority", "assignee", "created", "updated"]
 
+    /// The cloud id of `site` among the sites the account can reach.
+    private func cloudID() async throws -> String {
+        let resourcesData = try await mcp.call("getAccessibleAtlassianResources", arguments: Data("{}".utf8))
+        let resources = try JSONSerialization.jsonObject(with: resourcesData)
+        let list = (resources as? [[String: Any]]) ?? ((resources as? [String: Any])?["resources"] as? [[String: Any]]) ?? []
+        let host = site.host()?.lowercased() ?? ""
+        guard let match = list.first(where: { ($0["url"] as? String)?.lowercased().contains(host) == true }),
+              let id = match["id"] as? String else {
+            throw JiraError.siteNotAccessible(host)
+        }
+        return id
+    }
+
     private func search(jql: String, fields: [String], expand: String?, maxResults: Int) async throws -> SearchPage {
-        var body: [String: Any] = ["jql": jql, "fields": fields, "maxResults": maxResults]
-        if let expand { body["expand"] = expand }
-        var request = request(path: "rest/api/3/search/jql")
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        return try await send(request)
-    }
-
-    private func request(path: String) -> URLRequest {
-        var request = URLRequest(url: site.appending(path: path))
-        let credentials = Data("\(email):\(token)".utf8).base64EncodedString()
-        request.setValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        return request
-    }
-
-    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let cloudID = try await cloudID()
+        var arguments: [String: Any] = ["cloudId": cloudID, "jql": jql, "fields": fields, "maxResults": maxResults]
+        if let expand { arguments["expand"] = expand }
+        let data: Data
+        do {
+            data = try await mcp.call("searchJiraIssuesUsingJql", arguments: try JSONSerialization.data(withJSONObject: arguments))
+        } catch AtlassianMCP.Failure.tool(let message) where expand != nil && message.localizedCaseInsensitiveContains("expand") {
+            // The tool may not pass `expand` through; the changelog is then unavailable.
+            arguments["expand"] = nil
+            data = try await mcp.call("searchJiraIssuesUsingJql", arguments: try JSONSerialization.data(withJSONObject: arguments))
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let string = try decoder.singleValueContainer().decode(String.self)
@@ -121,11 +119,7 @@ struct JiraClient: Sendable {
             }
             return date
         }
-        guard (200..<300).contains(status) else {
-            let message = (try? decoder.decode(ErrorBody.self, from: data))?.message ?? "request failed"
-            throw JiraError.http(status: status, message: message)
-        }
-        return try decoder.decode(T.self, from: data)
+        return try decoder.decode(SearchPage.self, from: data)
     }
 
     /// Jira writes dates like 2026-10-05T19:06:06.000+0200.
@@ -158,24 +152,6 @@ struct JiraClient: Sendable {
 }
 
 // MARK: - Wire formats
-
-private struct Myself: Decodable {
-    let displayName: String
-}
-
-private struct ErrorBody: Decodable {
-    let errorMessages: [String]?
-    let errorMessage: String?
-
-    var message: String? {
-        errorMessage ?? errorMessages.flatMap { $0.isEmpty ? nil : $0.joined(separator: " ") }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case errorMessages
-        case errorMessage = "message"
-    }
-}
 
 private struct SearchPage: Decodable {
     let issues: [IssueNode]

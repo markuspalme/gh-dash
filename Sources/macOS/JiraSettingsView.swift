@@ -1,20 +1,17 @@
 import SwiftUI
 
-/// Sheet for the Atlassian site, account, API token and projects to follow.
+/// Sheet for the Atlassian site, the sign-in and the projects to follow.
 struct JiraSettingsView: View {
     let store: JiraStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var site = ""
-    @State private var email = ""
-    @State private var token = ""
     @State private var projects = ""
-    @State private var check: Check = .idle
+    @State private var status: Status = .idle
 
-    private enum Check: Equatable {
-        case idle, running, ok(String), failed(String)
+    private enum Status: Equatable {
+        case idle, signingIn, signedIn(String), failed(String)
     }
-
-    private static let tokenPageURL = URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,15 +21,44 @@ struct JiraSettingsView: View {
             Divider()
             Form {
                 TextField("Site", text: $site, prompt: Text("https://example.atlassian.net"))
-                TextField("Email", text: $email, prompt: Text("you@example.com"))
-                SecureField("API token", text: $token, prompt: Text(store.hasToken ? "unchanged" : "paste a token"))
-                LabeledContent("") {
-                    Link("Create an API token on Atlassian", destination: Self.tokenPageURL)
-                        .font(.callout)
-                }
                 TextField("Projects", text: $projects, prompt: Text("INTEL, MARS"))
                 LabeledContent("") {
                     Text("Project keys, separated by commas. Activity and tickets are shown for these.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Account") {
+                    HStack {
+                        switch status {
+                        case .idle:
+                            Text(store.isSignedIn ? "Signed in to Atlassian" : "Not signed in")
+                                .foregroundStyle(.secondary)
+                        case .signingIn:
+                            ProgressView().controlSize(.small)
+                            Text("Finish signing in in your browser…")
+                                .foregroundStyle(.secondary)
+                        case .signedIn(let name):
+                            Label(name.isEmpty ? "Signed in" : "Signed in as \(name)", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        case .failed(let message):
+                            Label(message, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer()
+                        if store.isSignedIn {
+                            Button("Sign Out") {
+                                store.signOut()
+                                status = .idle
+                            }
+                        } else {
+                            Button("Sign in with Atlassian…") { Task { await signIn() } }
+                                .disabled(status == .signingIn)
+                        }
+                    }
+                }
+                LabeledContent("") {
+                    Text("Sign-in happens in your browser, through Atlassian's MCP service; no API token is needed. Save the site first so the account can be checked against it.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -41,30 +67,21 @@ struct JiraSettingsView: View {
             .scrollDisabled(true)
             Divider()
             HStack {
-                Button("Test") { Task { await test() } }
-                    .disabled(check == .running || !draft.isComplete)
-                switch check {
-                case .idle: EmptyView()
-                case .running: ProgressView().controlSize(.small)
-                case .ok(let name): Label("Signed in as \(name)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                case .failed(let message): Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.secondary).lineLimit(2)
-                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
-                    store.save(config: draft, token: token)
+                    store.save(config: draft)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!draft.isComplete || (!store.hasToken && token.isEmpty))
+                .disabled(!draft.isComplete)
             }
             .padding()
         }
-        .frame(width: 520)
+        .frame(width: 560)
         .onAppear {
             site = store.config.site?.absoluteString ?? ""
-            email = store.config.email
             projects = store.config.projects.joined(separator: ", ")
         }
     }
@@ -75,17 +92,23 @@ struct JiraSettingsView: View {
         if siteText.hasSuffix("/") { siteText.removeLast() }
         return JiraConfig(
             site: siteText.isEmpty ? nil : URL(string: siteText),
-            email: email.trimmingCharacters(in: .whitespaces),
             projects: projects.split(whereSeparator: { $0 == "," || $0 == " " }).map { $0.uppercased() }.filter { !$0.isEmpty }
         )
     }
 
-    private func test() async {
-        check = .running
+    private func signIn() async {
+        // Save the draft first so the account check knows the site.
+        if draft.isComplete || draft.site != nil {
+            store.save(config: draft)
+        }
+        status = .signingIn
         do {
-            check = .ok(try await store.verify(config: draft, token: token))
+            let name = try await store.signIn { url in
+                Task { @MainActor in openURL(url) }
+            }
+            status = .signedIn(name)
         } catch {
-            check = .failed(error.localizedDescription)
+            status = .failed(error.localizedDescription)
         }
     }
 }

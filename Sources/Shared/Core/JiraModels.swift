@@ -1,14 +1,13 @@
 import Foundation
 
-/// Where and as whom to talk to Jira Cloud, plus which projects to watch.
+/// Which Jira site and projects to watch.
 struct JiraConfig: Equatable, Sendable {
     /// e.g. https://example.atlassian.net
     var site: URL?
-    var email = ""
     /// Project keys, e.g. ["INTEL"].
     var projects: [String] = []
 
-    var isComplete: Bool { site != nil && !email.isEmpty && !projects.isEmpty }
+    var isComplete: Bool { site != nil && !projects.isEmpty }
 }
 
 struct JiraIssue: Identifiable, Sendable {

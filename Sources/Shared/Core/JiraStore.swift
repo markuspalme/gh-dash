@@ -1,12 +1,13 @@
 import Foundation
 import Observation
 
-/// Jira configuration, credentials and the data behind the Jira page.
+/// Jira configuration, the Atlassian sign-in and the data behind the Jira page.
 @MainActor
 @Observable
 final class JiraStore {
     private(set) var config: JiraConfig
-    private(set) var hasToken: Bool
+    private(set) var isSignedIn: Bool
+    private(set) var isSigningIn = false
     private(set) var activity: [JiraEvent] = []
     private(set) var assigned: [JiraIssue] = []
     private(set) var lastUpdated: Date?
@@ -14,12 +15,11 @@ final class JiraStore {
     private(set) var errorMessage: String?
 
     @ObservationIgnored private var refreshQueued = false
-    /// Demo mode shows `JiraDemoData` and never talks to Jira or touches the saved settings.
+    @ObservationIgnored private let mcp = AtlassianMCP()
+    /// Demo mode shows `JiraDemoData` and never talks to Atlassian or touches the saved settings.
     private let isDemo: Bool
     private static let siteKey = "jiraSite"
-    private static let emailKey = "jiraEmail"
     private static let projectsKey = "jiraProjects"
-    private static let tokenAccount = "jira-api-token"
     /// How far back the activity feed looks.
     static let activityWindow: TimeInterval = 7 * 86400
 
@@ -27,32 +27,25 @@ final class JiraStore {
         isDemo = demo
         guard !demo else {
             config = JiraDemoData.config
-            hasToken = true
+            isSignedIn = true
             return
         }
         let defaults = UserDefaults.standard
-        let environment = ProcessInfo.processInfo.environment
         config = JiraConfig(
-            site: (environment["JIRA_SITE"] ?? defaults.string(forKey: Self.siteKey)).flatMap(URL.init(string:)),
-            email: environment["JIRA_EMAIL"] ?? defaults.string(forKey: Self.emailKey) ?? "",
+            site: (ProcessInfo.processInfo.environment["JIRA_SITE"] ?? defaults.string(forKey: Self.siteKey)).flatMap(URL.init(string:)),
             projects: defaults.stringArray(forKey: Self.projectsKey) ?? []
         )
-        hasToken = environment["JIRA_TOKEN"] != nil || Keychain.read(Self.tokenAccount) != nil
+        isSignedIn = false
+        Task { isSignedIn = await mcp.isSignedIn }
     }
 
-    var isConfigured: Bool { config.isComplete && hasToken }
+    var isConfigured: Bool { config.isComplete && isSignedIn }
 
-    /// Saves the settings; an empty token keeps the stored one.
-    func save(config: JiraConfig, token: String) {
+    func save(config: JiraConfig) {
         guard !isDemo else { return }
         let defaults = UserDefaults.standard
         defaults.set(config.site?.absoluteString, forKey: Self.siteKey)
-        defaults.set(config.email, forKey: Self.emailKey)
         defaults.set(config.projects, forKey: Self.projectsKey)
-        if !token.isEmpty {
-            Keychain.save(token, for: Self.tokenAccount)
-            hasToken = true
-        }
         self.config = config
         activity = []
         assigned = []
@@ -60,24 +53,33 @@ final class JiraStore {
         errorMessage = nil
     }
 
+    /// Signs in to Atlassian in the browser and returns the account's name.
+    func signIn(openURL: @Sendable @escaping (URL) -> Void) async throws -> String {
+        isSigningIn = true
+        defer { isSigningIn = false }
+        try await mcp.signIn(openURL: openURL)
+        isSignedIn = true
+        await logToolCatalogue()
+        guard let site = config.site else { return "" }
+        return try await JiraClient(site: site, mcp: mcp).fetchMyself()
+    }
+
     func signOut() {
-        Keychain.delete(Self.tokenAccount)
-        hasToken = false
+        Task { await mcp.signOut() }
+        isSignedIn = false
         activity = []
         assigned = []
         lastUpdated = nil
     }
 
-    /// Checks `token` (or the stored one) against `config` and returns the account's name.
-    func verify(config: JiraConfig, token: String) async throws -> String {
-        guard let client = client(for: config, token: token) else { throw JiraError.notConfigured }
-        return try await client.fetchMyself()
-    }
-
-    private func client(for config: JiraConfig, token: String) -> JiraClient? {
-        let token = token.isEmpty ? (ProcessInfo.processInfo.environment["JIRA_TOKEN"] ?? Keychain.read(Self.tokenAccount) ?? "") : token
-        guard let site = config.site, !config.email.isEmpty, !token.isEmpty else { return nil }
-        return JiraClient(site: site, email: config.email, token: token)
+    /// Writes the server's tool list to ~/Library/Logs/GHDash, which is how
+    /// the tool parameters this client relies on were found out.
+    private func logToolCatalogue() async {
+        guard let data = try? await mcp.listTools() else { return }
+        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        let directory = library.appending(path: "Logs/GHDash")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? data.write(to: directory.appending(path: "atlassian-mcp-tools.json"))
     }
 
     func assigned(in project: String?) -> [JiraIssue] {
@@ -114,23 +116,31 @@ final class JiraStore {
             lastUpdated = .now
             return
         }
-        guard isConfigured, let client = client(for: config, token: "") else {
+        isSignedIn = await mcp.isSignedIn
+        guard isConfigured, let site = config.site else {
             errorMessage = nil
             return
         }
+        let client = JiraClient(site: site, mcp: mcp)
         let projects = config.projects
         async let activity = client.fetchActivity(projects: projects, since: Date.now.addingTimeInterval(-Self.activityWindow))
         async let assigned = client.fetchAssignedIssues(projects: projects)
         var errors: [String] = []
+        var signedOut = false
         do {
             self.activity = try await activity
         } catch {
             errors.append("Activity: \(error.localizedDescription)")
+            signedOut = (error as? AtlassianMCP.Failure)?.isUnauthorized ?? false
         }
         do {
             self.assigned = try await assigned
         } catch {
             errors.append("Tickets: \(error.localizedDescription)")
+            signedOut = signedOut || (error as? AtlassianMCP.Failure)?.isUnauthorized ?? false
+        }
+        if signedOut {
+            isSignedIn = false
         }
         errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
         if errors.count < 2 {

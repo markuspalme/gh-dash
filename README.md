@@ -26,7 +26,7 @@ The Mac app has a second page, switched with the GitHub / Jira control in the to
 - **Activity** – what happened in your Jira projects in the last seven days: issues created, comments, status changes and assignments, newest first. Each entry opens the issue in Jira.
 - **My tickets** – your open issues, for all configured projects or one of them.
 
-It talks to Jira Cloud with an Atlassian API token. Open **Jira Settings…**, enter your site (`https://your-site.atlassian.net`), the email of your Atlassian account, an API token (create one at <https://id.atlassian.com/manage-profile/security/api-tokens>) and the project keys to follow, then press **Test** to check the credentials. The token is kept in the Keychain. `JIRA_SITE`, `JIRA_EMAIL` and `JIRA_TOKEN` in the environment override the saved values.
+It signs in to Atlassian in your browser, through Atlassian's MCP service — the same way the Atlassian connector in Claude Code does — so it works even where an administrator has blocked API tokens. Open **Jira Settings…**, enter your site (`https://your-site.atlassian.net`) and the project keys to follow, save, then press **Sign in with Atlassian…**. The sign-in is kept in the Keychain and refreshed automatically.
 
 Jira is only on the Mac for now; the iOS and terminal apps show GitHub only.
 

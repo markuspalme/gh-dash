@@ -2,7 +2,7 @@ import Foundation
 
 /// Made-up Jira data for `--demo`, matching the acme repositories of `DemoData`.
 enum JiraDemoData {
-    static let config = JiraConfig(site: URL(string: "https://acme.atlassian.net"), email: "alex@acme.example", projects: ["WEB", "API"])
+    static let config = JiraConfig(site: URL(string: "https://acme.atlassian.net"), projects: ["WEB", "API"])
 
     static var assigned: [JiraIssue] {
         [
