@@ -241,6 +241,12 @@ struct JiraView: View {
         return HStack(alignment: .top, spacing: 12) {
             ForEach(columns, id: \.status) { column in
                 VStack(alignment: .leading, spacing: 8) {
+                    // Jira's coloured bar: grey for to-do, blue for in-progress, green for done.
+                    Capsule()
+                        .fill(Self.columnColor(for: column.issues))
+                        .frame(height: 4)
+                        .padding(.horizontal, -8)
+                        .padding(.top, -8)
                     HStack(spacing: 6) {
                         Text(column.status.uppercased())
                             .font(.caption.weight(.semibold))
@@ -259,9 +265,20 @@ struct JiraView: View {
                 .frame(width: 260, alignment: .leading)
                 .padding(8)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
         .padding(.bottom, 16)
+    }
+
+    /// The column takes the colour of the status category most of its tickets are in.
+    private static func columnColor(for issues: [JiraIssue]) -> Color {
+        let categories = Dictionary(grouping: issues, by: \.statusCategory).max { $0.value.count < $1.value.count }?.key
+        switch categories {
+        case .done: return Color(red: 0.29, green: 0.81, blue: 0.59)      // Jira's green
+        case .indeterminate: return Color(red: 0.34, green: 0.62, blue: 1.0) // Jira's blue
+        default: return Color(red: 0.55, green: 0.60, blue: 0.67)         // Jira's grey
+        }
     }
 
     struct SprintGroup {
