@@ -7,6 +7,7 @@ struct JiraSettingsView: View {
     @Environment(\.openURL) private var openURL
     @State private var site = ""
     @State private var projects = ""
+    @State private var boardColumns = ""
     @State private var status: Status = .idle
 
     private enum Status: Equatable {
@@ -24,6 +25,12 @@ struct JiraSettingsView: View {
                 TextField("Projects", text: $projects, prompt: Text("INTEL, MARS"))
                 LabeledContent("") {
                     Text("Project keys, separated by commas. Activity and tickets are shown for these.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                TextField("Board columns", text: $boardColumns, prompt: Text("To Do, In Progress, Code Review, Done"))
+                LabeledContent("") {
+                    Text("Status names in the order of your board's columns. Leave empty to order them by status category.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -83,6 +90,7 @@ struct JiraSettingsView: View {
         .onAppear {
             site = store.config.site?.absoluteString ?? ""
             projects = store.config.projects.joined(separator: ", ")
+            boardColumns = store.config.boardColumns.joined(separator: ", ")
         }
     }
 
@@ -92,7 +100,8 @@ struct JiraSettingsView: View {
         if siteText.hasSuffix("/") { siteText.removeLast() }
         return JiraConfig(
             site: siteText.isEmpty ? nil : URL(string: siteText),
-            projects: projects.split(whereSeparator: { $0 == "," || $0 == " " }).map { $0.uppercased() }.filter { !$0.isEmpty }
+            projects: projects.split(whereSeparator: { $0 == "," || $0 == " " }).map { $0.uppercased() }.filter { !$0.isEmpty },
+            boardColumns: boardColumns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         )
     }
 

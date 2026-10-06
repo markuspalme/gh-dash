@@ -56,7 +56,8 @@ struct JiraClient: Sendable {
     /// and the id of the sprint field if it was seen.
     func fetchAssignedIssues(projects: [String]) async throws -> (issues: [JiraIssue], sprintField: String?) {
         guard !projects.isEmpty else { return ([], sprintField) }
-        let jql = "assignee = currentUser() AND project in (\(projects.joined(separator: ", "))) AND statusCategory != Done ORDER BY updated DESC"
+        // Recently finished tickets stay for two weeks so the board has a Done column.
+        let jql = "assignee = currentUser() AND project in (\(projects.joined(separator: ", "))) AND (statusCategory != Done OR updated >= -14d) ORDER BY updated DESC"
         // The sprint is a custom field whose id differs per site; "*all" finds it the first time.
         let fields = sprintField.map { Self.issueFields + [$0] } ?? ["*all"]
         let page = try await search(jql: jql, fields: fields, maxResults: 100)

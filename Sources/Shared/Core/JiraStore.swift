@@ -23,6 +23,7 @@ final class JiraStore {
     private static let siteKey = "jiraSite"
     private static let projectsKey = "jiraProjects"
     private static let sprintFieldKey = "jiraSprintField"
+    private static let boardColumnsKey = "jiraBoardColumns"
     /// How far back the activity feed looks.
     static let activityWindow: TimeInterval = 7 * 86400
 
@@ -36,7 +37,8 @@ final class JiraStore {
         let defaults = UserDefaults.standard
         config = JiraConfig(
             site: (ProcessInfo.processInfo.environment["JIRA_SITE"] ?? defaults.string(forKey: Self.siteKey)).flatMap(URL.init(string:)),
-            projects: defaults.stringArray(forKey: Self.projectsKey) ?? []
+            projects: defaults.stringArray(forKey: Self.projectsKey) ?? [],
+            boardColumns: defaults.stringArray(forKey: Self.boardColumnsKey) ?? []
         )
         isSignedIn = false
         Task { isSignedIn = await mcp.isSignedIn }
@@ -49,6 +51,7 @@ final class JiraStore {
         let defaults = UserDefaults.standard
         defaults.set(config.site?.absoluteString, forKey: Self.siteKey)
         defaults.set(config.projects, forKey: Self.projectsKey)
+        defaults.set(config.boardColumns, forKey: Self.boardColumnsKey)
         self.config = config
         activity = []
         assigned = []
@@ -85,9 +88,29 @@ final class JiraStore {
         try? data.write(to: directory.appending(path: "atlassian-mcp-tools.json"))
     }
 
-    func assigned(in project: String?) -> [JiraIssue] {
-        guard let project else { return assigned }
-        return assigned.filter { $0.projectKey == project }
+    /// Open tickets for the list; `includeDone` adds recently finished ones for the board.
+    func assigned(in project: String?, includeDone: Bool = false) -> [JiraIssue] {
+        assigned.filter { (project == nil || $0.projectKey == project) && (includeDone || $0.statusCategory != .done) }
+    }
+
+    /// The board's columns: configured order first, then any other status seen, by category.
+    func boardColumns(for issues: [JiraIssue]) -> [(status: String, issues: [JiraIssue])] {
+        let byStatus = Dictionary(grouping: issues, by: \.status)
+        func rank(_ status: String) -> Int {
+            switch byStatus[status]?.first?.statusCategory {
+            case .new: 0
+            case .indeterminate: 1
+            case .done: 3
+            default: 2
+            }
+        }
+        let configured = config.boardColumns.filter { !$0.isEmpty }
+        let seen = byStatus.keys.filter { status in !configured.contains { $0.caseInsensitiveCompare(status) == .orderedSame } }
+            .sorted { (rank($0), $0) < (rank($1), $1) }
+        return (configured + seen).map { column in
+            let matching = byStatus.first { $0.key.caseInsensitiveCompare(column) == .orderedSame }
+            return (status: matching?.key ?? column, issues: matching?.value ?? [])
+        }
     }
 
     // MARK: Refreshing

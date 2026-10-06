@@ -2,12 +2,33 @@ import SwiftUI
 
 /// The Jira page: recent activity in the configured projects, and the
 /// user's open tickets, overall or per project.
+enum TicketsLayout: String, CaseIterable {
+    case list, board
+
+    var title: String {
+        switch self {
+        case .list: "List"
+        case .board: "Board"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .list: "list.bullet"
+        case .board: "rectangle.split.3x1"
+        }
+    }
+}
+
 struct JiraView: View {
     let store: JiraStore
     @Binding var page: Page
     @Environment(\.openURL) private var openURL
     /// "activity", "tickets" (all projects) or "tickets:KEY".
     @AppStorage("jiraSelection") private var selectionID = "activity"
+    /// How "My tickets" is laid out.
+    @AppStorage("jiraTicketsLayout") private var ticketsLayout = TicketsLayout.list
+    @State private var scrollsHorizontally = false
     @State private var isEditingSettings = false
 
     var body: some View {
@@ -73,12 +94,16 @@ struct JiraView: View {
 
     // MARK: Detail
 
+    private var showsBoard: Bool { selectionID != "activity" && ticketsLayout == .board }
+
     private var detail: some View {
-        ScrollView {
+        ScrollView(showsBoard ? [.horizontal, .vertical] : .vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 if store.lastUpdated != nil {
                     if selectionID == "activity" {
                         activityRows
+                    } else if showsBoard {
+                        board
                     } else {
                         ticketRows
                     }
@@ -86,7 +111,7 @@ struct JiraView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: showsBoard ? nil : .infinity, alignment: .leading)
         }
         .overlay {
             if !store.isConfigured {
@@ -118,6 +143,17 @@ struct JiraView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 PagePicker(page: $page)
+            }
+            ToolbarItem {
+                Picker("Layout", selection: $ticketsLayout) {
+                    ForEach(TicketsLayout.allCases, id: \.self) { layout in
+                        Label(layout.title, systemImage: layout.symbol).tag(layout)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(selectionID == "activity")
+                .help("Show your tickets as a list by sprint or as a board by status")
             }
             ToolbarItem {
                 Button {
@@ -196,6 +232,35 @@ struct JiraView: View {
             }
             Spacer().frame(height: 22)
         }
+    }
+
+    /// One column per status, in the board's order.
+    private var board: some View {
+        let columns = store.boardColumns(for: store.assigned(in: scopedProject, includeDone: true))
+        return HStack(alignment: .top, spacing: 12) {
+            ForEach(columns, id: \.status) { column in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text(column.status.uppercased())
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: "\(column.issues.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .background(.quaternary, in: Capsule())
+                    }
+                    .padding(.horizontal, 4)
+                    ForEach(column.issues) { issue in
+                        JiraCard(issue: issue)
+                    }
+                }
+                .frame(width: 260, alignment: .leading)
+                .padding(8)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .padding(.bottom, 16)
     }
 
     struct SprintGroup {
@@ -308,6 +373,44 @@ struct JiraIssueRow: View {
         case .indeterminate: .blue
         case .done: .green
         case .unknown: .secondary
+        }
+    }
+}
+
+/// A ticket on the board.
+struct JiraCard: View {
+    let issue: JiraIssue
+
+    var body: some View {
+        LinkRow(url: issue.url) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(issue.summary)
+                    .font(.callout)
+                    .lineLimit(3)
+                HStack(spacing: 6) {
+                    Text(issue.key)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Text(issue.type)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    if let priority = issue.priority {
+                        Image(systemName: "flag")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help(priority)
+                    }
+                    if let sprint = issue.sprint {
+                        Text(sprint.name)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(10)
+            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 }

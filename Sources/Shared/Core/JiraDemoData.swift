@@ -2,7 +2,7 @@ import Foundation
 
 /// Made-up Jira data for `--demo`, matching the acme repositories of `DemoData`.
 enum JiraDemoData {
-    static let config = JiraConfig(site: URL(string: "https://acme.atlassian.net"), projects: ["WEB", "API"])
+    static let config = JiraConfig(site: URL(string: "https://acme.atlassian.net"), projects: ["WEB", "API"], boardColumns: ["To Do", "In Progress", "In Review", "Done"])
 
     static var assigned: [JiraIssue] {
         [
@@ -10,6 +10,7 @@ enum JiraDemoData {
             issue("API-287", "Rate limit public endpoints per API key", status: "In Review", category: .indeterminate, type: "Story", priority: "Medium", hoursAgo: 5),
             issue("WEB-398", "Dark mode for the reporting charts", status: "To Do", category: .new, type: "Story", priority: "Medium", hoursAgo: 30),
             issue("API-301", "Audit log export as CSV", status: "To Do", category: .new, type: "Task", priority: "Low", hoursAgo: 52),
+            issue("API-295", "Flaky date parsing in report export", status: "Done", category: .done, type: "Bug", priority: "High", hoursAgo: 20),
         ]
     }
 
