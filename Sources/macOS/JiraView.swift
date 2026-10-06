@@ -236,7 +236,8 @@ struct JiraView: View {
 
     /// One column per status, in the board's order.
     private var board: some View {
-        let columns = store.boardColumns(for: store.assigned(in: scopedProject, includeDone: true))
+        // Empty columns stay out of the way; the configured order is kept for the rest.
+        let columns = store.boardColumns(for: store.assigned(in: scopedProject, includeDone: true)).filter { !$0.issues.isEmpty }
         return HStack(alignment: .top, spacing: 12) {
             ForEach(columns, id: \.status) { column in
                 VStack(alignment: .leading, spacing: 8) {
