@@ -6,8 +6,9 @@ struct JiraConfig: Equatable, Sendable {
     var site: URL?
     /// Project keys, e.g. ["INTEL"].
     var projects: [String] = []
-    /// Status names in board order, e.g. ["To Do", "In Progress", "Done"];
-    /// empty means statuses are ordered by category as they appear.
+    /// Board columns in order. Each entry is a column name, optionally
+    /// followed by the statuses it collects, separated by slashes:
+    /// "In Progress / Rework". Empty means one column per status, by category.
     var boardColumns: [String] = []
 
     var isComplete: Bool { site != nil && !projects.isEmpty }

@@ -28,9 +28,9 @@ struct JiraSettingsView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                TextField("Board columns", text: $boardColumns, prompt: Text("To Do, In Progress, Code Review, Done"))
+                TextField("Board columns", text: $boardColumns, prompt: Text("To Do, In Progress / Rework, Done / Canceled"))
                 LabeledContent("") {
-                    Text("Status names in the order of your board's columns. Leave empty to order them by status category.")
+                    Text("Columns in board order, separated by commas. A column can collect several statuses, separated by slashes; the first name is the column's title. Statuses not listed go into an \"Other\" column. Leave empty for one column per status.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

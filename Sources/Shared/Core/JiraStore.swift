@@ -93,24 +93,45 @@ final class JiraStore {
         assigned.filter { (project == nil || $0.projectKey == project) && (includeDone || $0.statusCategory != .done) }
     }
 
-    /// The board's columns: configured order first, then any other status seen, by category.
+    /// The board's columns. With a configured list, each column collects the
+    /// statuses named in its entry ("In Progress / Rework") and anything
+    /// unlisted lands in a trailing "Other" column. Without one, every
+    /// status is its own column, ordered by category.
     func boardColumns(for issues: [JiraIssue]) -> [(status: String, issues: [JiraIssue])] {
         let byStatus = Dictionary(grouping: issues, by: \.status)
-        func rank(_ status: String) -> Int {
-            switch byStatus[status]?.first?.statusCategory {
-            case .new: 0
-            case .indeterminate: 1
-            case .done: 3
-            default: 2
+        let configured = config.boardColumns.map { entry -> (title: String, statuses: [String]) in
+            let parts = entry.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return (parts.first ?? entry, parts)
+        }.filter { !$0.title.isEmpty }
+
+        guard !configured.isEmpty else {
+            func rank(_ status: String) -> Int {
+                switch byStatus[status]?.first?.statusCategory {
+                case .new: 0
+                case .indeterminate: 1
+                case .done: 3
+                default: 2
+                }
             }
+            return byStatus.keys.sorted { (rank($0), $0) < (rank($1), $1) }.map { (status: $0, issues: byStatus[$0] ?? []) }
         }
-        let configured = config.boardColumns.filter { !$0.isEmpty }
-        let seen = byStatus.keys.filter { status in !configured.contains { $0.caseInsensitiveCompare(status) == .orderedSame } }
-            .sorted { (rank($0), $0) < (rank($1), $1) }
-        return (configured + seen).map { column in
-            let matching = byStatus.first { $0.key.caseInsensitiveCompare(column) == .orderedSame }
-            return (status: matching?.key ?? column, issues: matching?.value ?? [])
+
+        var remaining = byStatus
+        var columns: [(status: String, issues: [JiraIssue])] = []
+        for column in configured {
+            var collected: [JiraIssue] = []
+            for status in column.statuses {
+                if let key = remaining.keys.first(where: { $0.caseInsensitiveCompare(status) == .orderedSame }) {
+                    collected += remaining.removeValue(forKey: key) ?? []
+                }
+            }
+            columns.append((status: column.title, issues: collected.sorted { $0.updated > $1.updated }))
         }
+        let other = remaining.values.flatMap { $0 }.sorted { $0.updated > $1.updated }
+        if !other.isEmpty {
+            columns.append((status: "Other", issues: other))
+        }
+        return columns
     }
 
     // MARK: Refreshing
