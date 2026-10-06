@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     let store: DashboardStore
+    @Binding var page: Page
     @Environment(\.openURL) private var openURL
     @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
     @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
@@ -89,6 +90,9 @@ struct ContentView: View {
         .navigationTitle(scope?.name ?? "All Repositories")
         .navigationSubtitle(subtitle)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                PagePicker(page: $page)
+            }
             ToolbarItem {
                 Menu {
                     Toggle("Hide Drafts", isOn: $hideDrafts)

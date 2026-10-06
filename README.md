@@ -19,6 +19,17 @@ Every row opens the pull request or workflow run on GitHub; the app itself is re
 
 A sidebar scopes the dashboard to a single repository and shows item counts per repository. The Dock badge counts the things waiting on you: review requests, your pull requests that need fixing, and deployments you can approve. Data refreshes every three minutes.
 
+## Jira
+
+The Mac app has a second page, switched with the GitHub / Jira control in the toolbar (⌘1, ⌘2). It shows:
+
+- **Activity** – what happened in your Jira projects in the last seven days: issues created, comments, status changes and assignments, newest first. Each entry opens the issue in Jira.
+- **My tickets** – your open issues, for all configured projects or one of them.
+
+It talks to Jira Cloud with an Atlassian API token. Open **Jira Settings…**, enter your site (`https://your-site.atlassian.net`), the email of your Atlassian account, an API token (create one at <https://id.atlassian.com/manage-profile/security/api-tokens>) and the project keys to follow, then press **Test** to check the credentials. The token is kept in the Keychain. `JIRA_SITE`, `JIRA_EMAIL` and `JIRA_TOKEN` in the environment override the saved values.
+
+Jira is only on the Mac for now; the iOS and terminal apps show GitHub only.
+
 ## macOS
 
 ### Requirements

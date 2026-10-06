@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Security
 
 /// The signed-in GitHub account: a personal access token the user pasted in,
 /// checked against GitHub once and then kept in the Keychain.
@@ -11,6 +10,7 @@ final class AuthSession {
         var errorDescription: String? { "Not signed in to GitHub." }
     }
 
+    private static let tokenAccount = "github-token"
     private(set) var token: String?
     private(set) var isCheckingToken = false
     /// Why the last sign-in attempt failed.
@@ -23,7 +23,7 @@ final class AuthSession {
         if let token = ProcessInfo.processInfo.environment["GH_TOKEN"], !token.isEmpty {
             self.token = token
         } else {
-            token = Keychain.read()
+            token = Keychain.read(Self.tokenAccount)
         }
     }
 
@@ -40,7 +40,7 @@ final class AuthSession {
         defer { isCheckingToken = false }
         do {
             _ = try await GitHubClient(token: candidate).fetchViewerLogin()
-            Keychain.save(candidate)
+            Keychain.save(candidate, for: Self.tokenAccount)
             errorMessage = nil
             token = candidate
         } catch let error as GitHubError where error.isUnauthorized {
@@ -51,40 +51,7 @@ final class AuthSession {
     }
 
     func signOut() {
-        Keychain.delete()
+        Keychain.delete(Self.tokenAccount)
         token = nil
-    }
-}
-
-/// The one Keychain item the app owns: the GitHub token.
-private enum Keychain {
-    private static var query: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Bundle.main.bundleIdentifier ?? "GHDash",
-            kSecAttrAccount as String: "github-token",
-        ]
-    }
-
-    static func read() -> String? {
-        var query = query
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func save(_ token: String) {
-        delete()
-        var attributes = query
-        attributes[kSecValueData as String] = Data(token.utf8)
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(attributes as CFDictionary, nil)
-    }
-
-    static func delete() {
-        SecItemDelete(query as CFDictionary)
     }
 }
