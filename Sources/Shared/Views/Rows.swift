@@ -232,7 +232,6 @@ extension View {
 struct ApproveButton: View {
     let approval: ApprovalAction
     @State private var isConfirming = false
-    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         Button {
@@ -241,14 +240,14 @@ struct ApproveButton: View {
             if approval.isInFlight {
                 ProgressView()
                     .controlSize(.small)
-            } else if sizeClass == .compact {
-                Label(approval.title, systemImage: "checkmark")
-                    .labelStyle(.iconOnly)
             } else {
                 Label(approval.title, systemImage: "checkmark")
+                    .labelStyle(.iconOnly)
+                    .fontWeight(.semibold)
             }
         }
         .buttonStyle(.bordered)
+        .controlSize(.small)
         .tint(.green)
         .disabled(approval.isInFlight)
         .help(approval.question)
