@@ -15,7 +15,7 @@ It shows:
 - **My pull requests waiting on reviewers** – your pull requests with nothing left for you to do
 - **Pending actions** – GitHub Actions runs that have not finished, including deployments waiting for approval
 
-Every row opens the pull request or workflow run on GitHub; the app itself is read-only.
+Every row opens the pull request or workflow run on GitHub. Rows you can act on also have an **Approve** button, which asks for confirmation first: pull requests awaiting your review get an approving review, deployments get approved for the environments you may approve, and runs GitHub held for a first-time contributor are allowed to run.
 
 A sidebar scopes the dashboard to a single repository and shows item counts per repository. The Dock badge counts the things waiting on you: review requests, your pull requests that need fixing, and deployments you can approve. Data refreshes every three minutes.
 
@@ -105,7 +105,7 @@ make install-tui  # copy to /usr/local/bin/ghdash
 ghdash --repo owner/name --repo owner/other   # these repositories, for this run only
 ```
 
-Keys: `j`/`k` or the arrows move, `Enter` opens the row on GitHub or folds a section, `Space` folds the section, `Tab` switches between the repository list and the dashboard, `r` refreshes, `d`, `b` and `B` toggle the filters (drafts, failing Dependabot, all Dependabot), `p` chooses repositories, `q` quits, and the menu bar (`F9`) has the same commands. Inside a [herdr](https://herdr.dev) pane the app reports itself as blocked while something is waiting on you and idle otherwise, so the pane list shows it without a badge. The terminal app keeps its own settings in `~/.config/ghdash/config.json`, separate from the Mac app's: its repositories, filters, folded sections and scope.
+Keys: `j`/`k` or the arrows move, `Enter` opens the row on GitHub or folds a section, `Space` folds the section, `Tab` switches between the repository list and the dashboard, `a` approves the selected review request or deployment after asking, `r` refreshes, `d`, `b` and `B` toggle the filters (drafts, failing Dependabot, all Dependabot), `p` chooses repositories, `q` quits, and the menu bar (`F9`) has the same commands. Inside a [herdr](https://herdr.dev) pane the app reports itself as blocked while something is waiting on you and idle otherwise, so the pane list shows it without a badge. The terminal app keeps its own settings in `~/.config/ghdash/config.json`, separate from the Mac app's: its repositories, filters, folded sections and scope.
 
 ## Project
 

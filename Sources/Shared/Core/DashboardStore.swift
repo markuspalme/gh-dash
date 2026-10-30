@@ -38,8 +38,14 @@ final class DashboardStore {
     private(set) var lastUpdated: Date?
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    /// Approvals sent to GitHub and not answered yet, by `approvalID`.
+    private(set) var approvalsInFlight: Set<String> = []
+    /// Why the last approval failed; cleared by the next refresh.
+    private(set) var approvalError: String?
 
     @ObservationIgnored private var refreshQueued = false
+    /// What was approved in demo mode, kept off the dashboard from then on.
+    @ObservationIgnored private var demoApproved: Set<String> = []
     /// Ids of the things waiting on the user after the last load, and the
     /// repositories that load covered; nil until the first load.
     @ObservationIgnored private var knownAttention: (ids: Set<String>, repos: [Repo])?
@@ -165,6 +171,7 @@ final class DashboardStore {
         }
         isLoading = true
         defer { isLoading = false }
+        approvalError = nil
         repeat {
             refreshQueued = false
             await load()
@@ -176,9 +183,14 @@ final class DashboardStore {
         guard !isDemo else {
             let selected = Set(repos.map(\.fullName))
             let byRecency: (PullRequest, PullRequest) -> Bool = { $0.updatedAt > $1.updatedAt }
+            let approved = demoApproved
             myPullRequests = DemoData.myPullRequests.filter { selected.contains($0.repoFullName) }.sorted(by: byRecency)
-            reviewRequests = DemoData.reviewRequests.filter { selected.contains($0.repoFullName) }.sorted(by: byRecency)
-            pendingRuns = DemoData.pendingRuns.filter { repos.contains($0.repo) }.sorted { $0.createdAt > $1.createdAt }
+            reviewRequests = DemoData.reviewRequests
+                .filter { selected.contains($0.repoFullName) && !approved.contains(Self.approvalID(for: $0)) }
+                .sorted(by: byRecency)
+            pendingRuns = DemoData.pendingRuns
+                .filter { repos.contains($0.repo) && !approved.contains(Self.approvalID(for: $0)) }
+                .sorted { $0.createdAt > $1.createdAt }
             lastUpdated = .now
             return
         }
@@ -218,6 +230,49 @@ final class DashboardStore {
         if errors.isEmpty {
             notifyAboutNewAttentionItems(in: repos)
         }
+    }
+
+    // MARK: Approving
+
+    static func approvalID(for pullRequest: PullRequest) -> String { "pr:\(pullRequest.id)" }
+    static func approvalID(for run: WorkflowRun) -> String { "run:\(run.id)" }
+
+    /// Approves a pull request the user was asked to review, then refreshes.
+    func approve(_ pullRequest: PullRequest) async {
+        await performApproval(id: Self.approvalID(for: pullRequest)) { client in
+            try await client.approve(pullRequest)
+        }
+    }
+
+    /// Approves the deployments of `run` the user may approve, or lets a run
+    /// GitHub held for a first-time contributor go ahead; then refreshes.
+    func approve(_ run: WorkflowRun) async {
+        await performApproval(id: Self.approvalID(for: run)) { client in
+            if run.canApprove {
+                try await client.approveDeployments(of: run)
+            } else if run.needsRunApproval {
+                try await client.approveRun(run)
+            }
+        }
+    }
+
+    private func performApproval(id: String, _ send: @Sendable (GitHubClient) async throws -> Void) async {
+        guard !approvalsInFlight.contains(id) else { return }
+        approvalsInFlight.insert(id)
+        defer { approvalsInFlight.remove(id) }
+        approvalError = nil
+        if isDemo {
+            try? await Task.sleep(for: .milliseconds(600))
+            demoApproved.insert(id)
+        } else {
+            do {
+                try await send(GitHubClient(token: token()))
+            } catch {
+                approvalError = "Approval failed: \(error.localizedDescription)"
+                return
+            }
+        }
+        await refresh()
     }
 
     // MARK: Notifications

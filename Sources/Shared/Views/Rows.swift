@@ -5,6 +5,8 @@ import SwiftUI
 struct PullRequestRow: View {
     let pullRequest: PullRequest
     let showAuthor: Bool
+    /// Offered on pull requests the user was asked to review.
+    var approval: ApprovalAction?
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// On a phone the badges shrink to icons and numbers so they fit one line.
@@ -52,6 +54,7 @@ struct PullRequestRow: View {
                 }
             }
         }
+        .approvable(approval)
     }
 
     /// Who the pull request is waiting on. iOS has no room for a list of
@@ -141,6 +144,8 @@ struct PullRequestRow: View {
 
 struct WorkflowRunRow: View {
     let run: WorkflowRun
+    /// Offered on deployments the user may approve and on held runs.
+    var approval: ApprovalAction?
 
     var body: some View {
         LinkRow(url: run.url) {
@@ -168,6 +173,7 @@ struct WorkflowRunRow: View {
                 }
             }
         }
+        .approvable(approval)
     }
 
     private var detail: String {
@@ -195,6 +201,62 @@ struct WorkflowRunRow: View {
             Badge("Queued", symbol: "hourglass", tint: .secondary)
         default:
             Badge(run.status.replacingOccurrences(of: "_", with: " ").capitalized, symbol: "clock", tint: .secondary)
+        }
+    }
+}
+
+// MARK: - Approving
+
+/// Something the user can approve from the dashboard, and how to ask first.
+struct ApprovalAction {
+    let title: String
+    let question: String
+    let message: String
+    let isInFlight: Bool
+    let perform: () -> Void
+}
+
+extension View {
+    /// Puts an approve button beside the row when there is something to approve.
+    func approvable(_ approval: ApprovalAction?) -> some View {
+        HStack(spacing: 12) {
+            self
+            if let approval {
+                ApproveButton(approval: approval)
+            }
+        }
+    }
+}
+
+/// Approves after the user confirms: approving acts on GitHub as them.
+struct ApproveButton: View {
+    let approval: ApprovalAction
+    @State private var isConfirming = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    var body: some View {
+        Button {
+            isConfirming = true
+        } label: {
+            if approval.isInFlight {
+                ProgressView()
+                    .controlSize(.small)
+            } else if sizeClass == .compact {
+                Label(approval.title, systemImage: "checkmark")
+                    .labelStyle(.iconOnly)
+            } else {
+                Label(approval.title, systemImage: "checkmark")
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(.green)
+        .disabled(approval.isInFlight)
+        .help(approval.question)
+        .confirmationDialog(approval.question, isPresented: $isConfirming, titleVisibility: .visible) {
+            Button(approval.title, action: approval.perform)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(approval.message)
         }
     }
 }

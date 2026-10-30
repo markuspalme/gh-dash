@@ -24,7 +24,8 @@ struct DashboardView: View {
                     pullRequestSection(
                         "Awaiting your review", id: "review",
                         store.reviewRequests,
-                        showAuthor: true
+                        showAuthor: true,
+                        approvable: true
                     )
                     pullRequestSection(
                         "My pull requests waiting on reviewers", id: "waiting",
@@ -56,8 +57,9 @@ struct DashboardView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let message = store.errorMessage {
-                ErrorBanner(message: message)
+            let messages = [store.approvalError, store.errorMessage].compactMap { $0 }
+            if !messages.isEmpty {
+                ErrorBanner(message: messages.joined(separator: "\n"))
             }
         }
     }
@@ -74,7 +76,7 @@ struct DashboardView: View {
     }
 
     private func pullRequestSection(
-        _ title: String, id: String, _ all: [PullRequest], showAuthor: Bool
+        _ title: String, id: String, _ all: [PullRequest], showAuthor: Bool, approvable: Bool = false
     ) -> some View {
         let pullRequests = store.pullRequests(all, in: scope)
         let visible = pullRequests.filter(filter.shows)
@@ -88,10 +90,47 @@ struct DashboardView: View {
                 EmptyRow(text: "None")
             }
             ForEach(visible) { pullRequest in
-                PullRequestRow(pullRequest: pullRequest, showAuthor: showAuthor)
+                PullRequestRow(
+                    pullRequest: pullRequest, showAuthor: showAuthor,
+                    approval: approvable ? approval(for: pullRequest) : nil
+                )
                 Divider()
             }
         }
+    }
+
+    private func approval(for pullRequest: PullRequest) -> ApprovalAction {
+        ApprovalAction(
+            title: "Approve",
+            question: "Approve \(pullRequest.repoName) #\(pullRequest.number)?",
+            message: "This submits an approving review of “\(pullRequest.title)” on GitHub as you.",
+            isInFlight: store.approvalsInFlight.contains(DashboardStore.approvalID(for: pullRequest)),
+            perform: { Task { await store.approve(pullRequest) } }
+        )
+    }
+
+    private func approval(for run: WorkflowRun) -> ApprovalAction? {
+        let isInFlight = store.approvalsInFlight.contains(DashboardStore.approvalID(for: run))
+        if run.canApprove {
+            let environments = run.approvableEnvironments.joined(separator: ", ")
+            return ApprovalAction(
+                title: "Approve",
+                question: "Approve deployment to \(environments)?",
+                message: "\(run.workflowName) #\(run.runNumber) in \(run.repo.name) continues and deploys.",
+                isInFlight: isInFlight,
+                perform: { Task { await store.approve(run) } }
+            )
+        }
+        if run.needsRunApproval {
+            return ApprovalAction(
+                title: "Approve and Run",
+                question: "Run \(run.workflowName) #\(run.runNumber)?",
+                message: "GitHub held this run until a maintainer approves it, as it does for first-time contributors.",
+                isInFlight: isInFlight,
+                perform: { Task { await store.approve(run) } }
+            )
+        }
+        return nil
     }
 
     @ViewBuilder
@@ -112,7 +151,7 @@ struct DashboardView: View {
                     link: repo.actionsURL
                 ) {
                     ForEach(runs) { run in
-                        WorkflowRunRow(run: run)
+                        WorkflowRunRow(run: run, approval: approval(for: run))
                         Divider()
                     }
                 }

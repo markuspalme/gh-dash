@@ -150,6 +150,8 @@ struct WorkflowRun: Identifiable, Sendable {
     struct PendingEnvironment: Sendable {
         let name: String
         let currentUserCanApprove: Bool
+        /// GitHub's id for the environment, which approving it needs.
+        var environmentID = 0
     }
 
     let id: Int
@@ -167,4 +169,13 @@ struct WorkflowRun: Identifiable, Sendable {
     var pendingEnvironments: [PendingEnvironment] = []
 
     var canApprove: Bool { pendingEnvironments.contains(where: \.currentUserCanApprove) }
+
+    /// Held until a maintainer approves it, as GitHub does for pull requests
+    /// from first-time contributors.
+    var needsRunApproval: Bool { status == "action_required" }
+
+    /// Environments the user may approve, by name.
+    var approvableEnvironments: [String] {
+        pendingEnvironments.filter(\.currentUserCanApprove).map(\.name)
+    }
 }

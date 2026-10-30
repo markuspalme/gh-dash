@@ -83,6 +83,7 @@ final class DashboardScreen {
         // Panels sort by priority alone, so each hotkey gets its own level to keep this order.
         let hotkeys: [(id: String, key: Character, label: String, priority: StatusBar.Priority, action: () -> Void)] = [
             ("refresh", "r", " Refresh", .veryHigh, { [weak self] in MainActor.assumeIsolated { self?.refreshNow() } }),
+            ("approve", "a", " Approve", .high, { [weak self] in MainActor.assumeIsolated { self?.approveSelected() } }),
             ("drafts", "d", " Drafts", .high, { [weak self] in MainActor.assumeIsolated { self?.toggleDrafts() } }),
             ("dependabot", "b", " Dependabot", .default, { [weak self] in MainActor.assumeIsolated { self?.toggleDependabot() } }),
             ("repos", "p", " Repositories", .low, { [weak self] in MainActor.assumeIsolated { self?.chooseRepos() } }),
@@ -163,6 +164,7 @@ final class DashboardScreen {
         MessageBox.query("Keys", message: """
             j/k or arrows  move
             Enter          open on GitHub, or fold a section
+            a              approve the pull request or deployment
             Space, c       fold or unfold the section
             g / G          first / last row
             Tab            switch between repositories and dashboard
@@ -220,7 +222,7 @@ final class DashboardScreen {
         if let updated = store.lastUpdated {
             status.updatePanel(id: "updated", content: "Updated \(updated.formatted(date: .omitted, time: .shortened))")
         }
-        if let message = store.errorMessage {
+        if let message = store.approvalError ?? store.errorMessage {
             status.pushStatus(message, priority: .high)
         } else {
             status.clearStatus()
@@ -246,6 +248,7 @@ final class DashboardScreen {
     private func handleHotKey(_ key: Key) -> Bool {
         switch key {
         case .letter("r"): refreshNow()
+        case .letter("a"): approveSelected()
         case .letter("d"): toggleDrafts()
         case .letter("b"): toggleDependabot()
         case .letter("B"): toggleAllDependabot()
@@ -256,6 +259,39 @@ final class DashboardScreen {
         default: return false
         }
         return true
+    }
+
+    /// Approves the selected review request, deployment or held run once
+    /// the user confirms; anything else just says what can be approved.
+    private func approveSelected() {
+        let question: String
+        let approve: () async -> Void
+        switch dashboard.selectedRow {
+        case .pullRequest(let pullRequest, _, "review"):
+            question = "Approve \(pullRequest.repoName) #\(pullRequest.number)?\n\(pullRequest.title)"
+            approve = { [store] in await store.approve(pullRequest) }
+        case .run(let run, _) where run.canApprove:
+            question = "Approve deployment of \(run.workflowName) #\(run.runNumber)\nto \(run.approvableEnvironments.joined(separator: ", "))?"
+            approve = { [store] in await store.approve(run) }
+        case .run(let run, _) where run.needsRunApproval:
+            question = "Let \(run.workflowName) #\(run.runNumber) run?\nGitHub held it for a first-time contributor."
+            approve = { [store] in await store.approve(run) }
+        default:
+            status.pushStatus("Select a review request or a deployment awaiting your approval", priority: .high)
+            return
+        }
+        MessageBox.query("Approve", message: question, buttons: ["Approve", "Cancel"]) { [weak self] choice in
+            guard choice == 0 else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.status.showSpinner(id: "approving", message: "Approving…", placement: .trailing)
+                Task { @MainActor in
+                    await approve()
+                    self.status.hideIndicator(id: "approving")
+                    self.reload()
+                }
+            }
+        }
     }
 
     private func toggleDrafts() {

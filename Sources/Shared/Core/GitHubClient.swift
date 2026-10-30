@@ -203,11 +203,55 @@ struct GitHubClient: Sendable {
         let request = makeRequest(path: "repos/\(run.repo.fullName)/actions/runs/\(run.id)/pending_deployments")
         let response: [PendingDeployment] = try await send(request)
         return response
-            .map { .init(name: $0.environment.name, currentUserCanApprove: $0.currentUserCanApprove) }
+            .map {
+                .init(
+                    name: $0.environment.name,
+                    currentUserCanApprove: $0.currentUserCanApprove,
+                    environmentID: $0.environment.id
+                )
+            }
             .sorted { $0.name < $1.name }
     }
 
+    // MARK: Approving
+
+    /// Submits an approving review as the user.
+    func approve(_ pullRequest: PullRequest) async throws {
+        try await post(
+            path: "repos/\(pullRequest.repoFullName)/pulls/\(pullRequest.number)/reviews",
+            body: ["event": "APPROVE"]
+        )
+    }
+
+    /// Approves every deployment of `run` the user is allowed to approve.
+    func approveDeployments(of run: WorkflowRun) async throws {
+        let ids = run.pendingEnvironments.filter(\.currentUserCanApprove).map(\.environmentID)
+        guard !ids.isEmpty else { return }
+        try await post(
+            path: "repos/\(run.repo.fullName)/actions/runs/\(run.id)/pending_deployments",
+            body: ["environment_ids": ids, "state": "approved", "comment": ""]
+        )
+    }
+
+    /// Lets a run that GitHub held back (a first-time contributor's pull request) go ahead.
+    func approveRun(_ run: WorkflowRun) async throws {
+        try await post(path: "repos/\(run.repo.fullName)/actions/runs/\(run.id)/approve", body: [:])
+    }
+
     // MARK: Transport
+
+    /// Sends a POST whose reply only matters for its status.
+    private func post(path: String, body: [String: Any]) async throws {
+        var request = makeRequest(path: path)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            let message = (try? JSONDecoder().decode(APIErrorBody.self, from: data))?.message
+            throw GitHubError.http(status: status, message: message ?? "request failed")
+        }
+    }
 
     private func makeRequest(path: String, query: [String: String] = [:]) -> URLRequest {
         var components = URLComponents(string: "https://api.github.com/\(path)")!
@@ -399,6 +443,7 @@ private struct RunsResponse: Decodable {
 
 private struct PendingDeployment: Decodable {
     struct Environment: Decodable {
+        let id: Int
         let name: String
     }
     let environment: Environment
