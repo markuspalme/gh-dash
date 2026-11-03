@@ -15,7 +15,7 @@ It shows:
 - **My pull requests waiting on reviewers** – your pull requests with nothing left for you to do
 - **Pending actions** – GitHub Actions runs that have not finished, including deployments waiting for approval
 
-Every row opens the pull request or workflow run on GitHub. Rows you can act on also have an **Approve** button, which asks for confirmation first: pull requests awaiting your review get an approving review, deployments get approved for the environments you may approve, and runs GitHub held for a first-time contributor are allowed to run.
+Every row opens the pull request or workflow run on GitHub. Rows you can act on can be approved by swiping them to the left, as in Mail (two fingers on a Mac trackpad), or from their context menu; the app asks for confirmation first: pull requests awaiting your review get an approving review, deployments get approved for the environments you may approve, and runs GitHub held for a first-time contributor are allowed to run.
 
 A sidebar scopes the dashboard to a single repository and shows item counts per repository. The Dock badge counts the things waiting on you: review requests, your pull requests that need fixing, and deployments you can approve. Data refreshes every three minutes.
 

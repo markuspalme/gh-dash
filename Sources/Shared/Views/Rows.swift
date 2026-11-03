@@ -13,7 +13,7 @@ struct PullRequestRow: View {
     private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
-        LinkRow(url: pullRequest.url) {
+        LinkRow(url: pullRequest.url, approval: approval) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(pullRequest.title)
@@ -54,7 +54,6 @@ struct PullRequestRow: View {
                 }
             }
         }
-        .approvable(approval)
     }
 
     /// Who the pull request is waiting on. iOS has no room for a list of
@@ -148,7 +147,7 @@ struct WorkflowRunRow: View {
     var approval: ApprovalAction?
 
     var body: some View {
-        LinkRow(url: run.url) {
+        LinkRow(url: run.url, approval: approval) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(run.workflowName)
@@ -173,7 +172,6 @@ struct WorkflowRunRow: View {
                 }
             }
         }
-        .approvable(approval)
     }
 
     private var detail: String {
@@ -216,57 +214,18 @@ struct ApprovalAction {
     let perform: () -> Void
 }
 
-extension View {
-    /// Puts an approve button beside the row when there is something to approve.
-    func approvable(_ approval: ApprovalAction?) -> some View {
-        HStack(spacing: 12) {
-            self
-            if let approval {
-                ApproveButton(approval: approval)
-            }
-        }
-    }
-}
-
-/// Approves after the user confirms: approving acts on GitHub as them.
-struct ApproveButton: View {
-    let approval: ApprovalAction
-    @State private var isConfirming = false
-
-    var body: some View {
-        Button {
-            isConfirming = true
-        } label: {
-            if approval.isInFlight {
-                ProgressView()
-                    .controlSize(.small)
-            } else {
-                Label(approval.title, systemImage: "checkmark")
-                    .labelStyle(.iconOnly)
-                    .fontWeight(.semibold)
-            }
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .tint(.green)
-        .disabled(approval.isInFlight)
-        .help(approval.question)
-        .confirmationDialog(approval.question, isPresented: $isConfirming, titleVisibility: .visible) {
-            Button(approval.title, action: approval.perform)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(approval.message)
-        }
-    }
-}
-
 // MARK: - Building blocks
 
-/// A list row that opens `url` in the browser when clicked.
+/// A list row that opens `url` in the browser when clicked. With an
+/// `approval`, swiping the row to the left approves it once the user
+/// confirms, as in Mail: a finger on iOS, two fingers on a Mac trackpad.
+/// The context menu offers the same, for a mouse and for VoiceOver.
 struct LinkRow<Content: View>: View {
     let url: URL
+    var approval: ApprovalAction?
     @ViewBuilder var content: Content
     @Environment(\.openURL) private var openURL
+    @State private var isConfirming = false
 
     var body: some View {
         Button {
@@ -282,6 +241,15 @@ struct LinkRow<Content: View>: View {
         .pointerStyle(.link)
         #endif
         .contextMenu {
+            if let approval {
+                Button {
+                    isConfirming = true
+                } label: {
+                    Label("\(approval.title)…", systemImage: "checkmark")
+                }
+                .disabled(approval.isInFlight)
+                Divider()
+            }
             Button("Open in Browser") { openURL(url) }
             Button("Copy Link") {
                 #if os(macOS)
@@ -292,7 +260,177 @@ struct LinkRow<Content: View>: View {
                 #endif
             }
         }
+        .modifier(SwipeToApprove(
+            isEnabled: approval.map { !$0.isInFlight } ?? false,
+            isInFlight: approval?.isInFlight ?? false,
+            trigger: { isConfirming = true }
+        ))
+        .confirmationDialog(approval?.question ?? "", isPresented: $isConfirming, titleVisibility: .visible) {
+            if let approval {
+                Button(approval.title, action: approval.perform)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let approval {
+                Text(approval.message)
+            }
+        }
+        .accessibilityActions {
+            if let approval {
+                Button(approval.title) { isConfirming = true }
+            }
+        }
     }
+}
+
+/// Slides a row left under the finger, or two fingers on a trackpad,
+/// uncovering a green check mark. Letting go once the mark has filled in
+/// calls `trigger`; letting go earlier puts the row back.
+private struct SwipeToApprove: ViewModifier {
+    let isEnabled: Bool
+    let isInFlight: Bool
+    let trigger: () -> Void
+
+    @State private var offset: CGFloat = 0
+    /// Whether the current gesture is a sideways swipe; nil until it is clear.
+    @State private var isHorizontal: Bool?
+    #if os(macOS)
+    @State private var monitor: Any?
+    @State private var travel = CGSize.zero
+    /// Set after a swipe, so the trackpad's momentum does not scroll the page.
+    @State private var swallowMomentum = false
+    #endif
+
+    private static let threshold: CGFloat = 80
+
+    private var isArmed: Bool { -offset >= Self.threshold }
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: offset)
+            .opacity(isInFlight ? 0.5 : 1)
+            .background(alignment: .trailing) {
+                if offset < 0 {
+                    ZStack(alignment: .trailing) {
+                        Rectangle()
+                            .fill(Color.green.opacity(isArmed ? 1 : 0.5))
+                        Image(systemName: "checkmark")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .scaleEffect(isArmed ? 1.15 : 0.85)
+                            .padding(.trailing, 20)
+                    }
+                    .frame(width: -offset)
+                    .animation(.easeOut(duration: 0.15), value: isArmed)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if isInFlight {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .clipped()
+            #if os(iOS)
+            .simultaneousGesture(drag, including: isEnabled ? .all : .subviews)
+            .sensoryFeedback(.impact, trigger: isArmed) { _, armed in armed }
+            #else
+            .onHover { hovering in
+                if hovering && isEnabled {
+                    startMonitoring()
+                } else {
+                    stopMonitoring()
+                }
+            }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled { stopMonitoring() }
+            }
+            .onDisappear(perform: stopMonitoring)
+            #endif
+    }
+
+    /// Follows the swipe; past the threshold it only gives a little more.
+    private func follow(_ distance: CGFloat) {
+        let pulled = max(0, -distance)
+        let limit = Self.threshold * 1.5
+        offset = -(pulled <= limit ? pulled : limit + (pulled - limit) * 0.3)
+    }
+
+    private func finish() {
+        let fire = isArmed
+        isHorizontal = nil
+        withAnimation(.spring(duration: 0.3)) { offset = 0 }
+        if fire { trigger() }
+    }
+
+    #if os(iOS)
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                if isHorizontal == nil {
+                    isHorizontal = abs(value.translation.width) > abs(value.translation.height)
+                }
+                if isHorizontal == true {
+                    follow(value.translation.width)
+                }
+            }
+            .onEnded { _ in finish() }
+    }
+    #else
+    private func startMonitoring() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            handle(event) ? nil : event
+        }
+    }
+
+    private func stopMonitoring() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+        if offset != 0 { finish() }
+    }
+
+    /// Uses up the trackpad events of a sideways swipe; anything else,
+    /// including mouse wheels, scrolls the page as usual.
+    private func handle(_ event: NSEvent) -> Bool {
+        guard event.hasPreciseScrollingDeltas else { return false }
+        if !event.momentumPhase.isEmpty { return swallowMomentum }
+        // The way the fingers moved, whatever the scrolling preference.
+        let dx = event.isDirectionInvertedFromDevice ? event.scrollingDeltaX : -event.scrollingDeltaX
+        let dy = event.scrollingDeltaY
+        switch event.phase {
+        case .began:
+            isHorizontal = nil
+            swallowMomentum = false
+            travel = CGSize(width: dx, height: dy)
+            return false
+        case .changed:
+            if isHorizontal == nil {
+                travel.width += dx
+                travel.height += dy
+                guard abs(travel.width) + abs(travel.height) > 6 else { return false }
+                isHorizontal = abs(travel.width) > abs(travel.height) * 1.5
+            } else {
+                travel.width += dx
+            }
+            guard isHorizontal == true else { return false }
+            follow(travel.width)
+            return true
+        case .ended, .cancelled:
+            guard isHorizontal == true else {
+                isHorizontal = nil
+                return false
+            }
+            swallowMomentum = true
+            finish()
+            return true
+        default:
+            return false
+        }
+    }
+    #endif
 }
 
 struct Badge: View {
