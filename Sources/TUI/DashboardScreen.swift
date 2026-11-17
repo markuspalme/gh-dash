@@ -140,6 +140,7 @@ final class DashboardScreen {
             MenuItem(title: mark(filter.hideDrafts) + "Hide _Drafts", action: { [weak self] in self?.toggleDrafts() }),
             MenuItem(title: mark(filter.hideFailingDependabot) + "Hide Failing Depend_abot", action: { [weak self] in self?.toggleDependabot() }),
             MenuItem(title: mark(filter.hideDependabot) + "Hide A_ll Dependabot", action: { [weak self] in self?.toggleAllDependabot() }),
+            MenuItem(title: mark(filter.hideApprovedReviews) + "Hide Reviews Approved by _Others", action: { [weak self] in self?.toggleApprovedReviews() }),
             nil,
             MenuItem(title: "_All repositories", action: { [weak self] in self?.setScope(nil) }),
         ]
@@ -170,6 +171,7 @@ final class DashboardScreen {
             Tab            switch between repositories and dashboard
             r              refresh
             d / b / B      hide drafts / failing Dependabot / all Dependabot
+            A              hide reviews someone else approved
             p              choose repositories
             q              quit
             """, buttons: ["OK"]) { _ in }
@@ -252,6 +254,7 @@ final class DashboardScreen {
         case .letter("d"): toggleDrafts()
         case .letter("b"): toggleDependabot()
         case .letter("B"): toggleAllDependabot()
+        case .letter("A"): toggleApprovedReviews()
         case .letter("p"): chooseRepos()
         case .letter("q"): quit()
         case .letter("?"): Self.showKeys()
@@ -301,6 +304,11 @@ final class DashboardScreen {
 
     private func toggleDependabot() {
         config.filter.hideFailingDependabot.toggle()
+        reload()
+    }
+
+    private func toggleApprovedReviews() {
+        config.filter.hideApprovedReviews.toggle()
         reload()
     }
 

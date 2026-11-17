@@ -6,6 +6,7 @@ struct ContentView: View {
     @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
     @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
     @AppStorage(PullRequestFilter.hideDependabotKey) private var hideDependabot = false
+    @AppStorage(PullRequestFilter.hideApprovedReviewsKey) private var hideApprovedReviews = false
     /// Full name of the repository the dashboard is scoped to; empty for all.
     @AppStorage("scopedRepo") private var scopedRepoName = ""
     @State private var isChoosingRepos = false
@@ -31,7 +32,10 @@ struct ContentView: View {
     }
 
     private var filter: PullRequestFilter {
-        PullRequestFilter(hideDrafts: hideDrafts, hideFailingDependabot: hideFailingDependabot, hideDependabot: hideDependabot)
+        PullRequestFilter(
+            hideDrafts: hideDrafts, hideFailingDependabot: hideFailingDependabot,
+            hideDependabot: hideDependabot, hideApprovedReviews: hideApprovedReviews
+        )
     }
 
     // MARK: Sidebar
@@ -94,11 +98,12 @@ struct ContentView: View {
                     Toggle("Hide Drafts", isOn: $hideDrafts)
                     Toggle("Hide Failing Dependabot", isOn: $hideFailingDependabot)
                     Toggle("Hide All Dependabot", isOn: $hideDependabot)
+                    Toggle("Hide Reviews Approved by Others", isOn: $hideApprovedReviews)
                 } label: {
                     // Filled while a filter is hiding something, as in Mail.
                     Label(
                         "Filter",
-                        systemImage: hideDrafts || hideFailingDependabot || hideDependabot
+                        systemImage: hideDrafts || hideFailingDependabot || hideDependabot || hideApprovedReviews
                             ? "line.3.horizontal.decrease.circle.fill"
                             : "line.3.horizontal.decrease.circle"
                     )

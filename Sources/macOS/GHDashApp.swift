@@ -6,6 +6,7 @@ struct GHDashApp: App {
     @AppStorage(PullRequestFilter.hideDraftsKey) private var hideDrafts = true
     @AppStorage(PullRequestFilter.hideFailingDependabotKey) private var hideFailingDependabot = true
     @AppStorage(PullRequestFilter.hideDependabotKey) private var hideDependabot = false
+    @AppStorage(PullRequestFilter.hideApprovedReviewsKey) private var hideApprovedReviews = false
 
     init() {
         let isDemo = ProcessInfo.processInfo.arguments.contains("--demo")
@@ -31,6 +32,7 @@ struct GHDashApp: App {
                 Toggle("Hide Drafts", isOn: $hideDrafts)
                 Toggle("Hide Failing Dependabot", isOn: $hideFailingDependabot)
                 Toggle("Hide All Dependabot", isOn: $hideDependabot)
+                Toggle("Hide Reviews Approved by Others", isOn: $hideApprovedReviews)
                 Divider()
             }
         }

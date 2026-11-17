@@ -79,12 +79,13 @@ struct DashboardView: View {
         _ title: String, id: String, _ all: [PullRequest], showAuthor: Bool, approvable: Bool = false
     ) -> some View {
         let pullRequests = store.pullRequests(all, in: scope)
-        let visible = pullRequests.filter(filter.shows)
+        // The approve action marks the review requests, which have a filter of their own.
+        let visible = pullRequests.filter(approvable ? filter.showsReviewRequest : filter.shows)
         return DashboardSection(
             title: title,
             count: visible.count,
             isExpanded: isExpanded(id),
-            note: filter.hiddenNote(for: pullRequests)
+            note: filter.hiddenNote(for: pullRequests, reviewRequests: approvable)
         ) {
             if visible.isEmpty {
                 EmptyRow(text: "None")

@@ -48,7 +48,7 @@ On first launch, pick the repositories to show with **Choose Repositories…**.
 The iPhone and iPad app shows the same dashboard as the Mac app: the same four sections, collapsible, with every row opening the pull request or workflow run on GitHub. It needs iOS 18 or later.
 
 - **Repositories** – the dashboard opens on all repositories; the back button leads to the repository list with item counts, where you can scope to one repository, choose which repositories to show, or sign out. On an iPad that list is a sidebar.
-- **Filters** – the filter button hides drafts, failing Dependabot pull requests, or all Dependabot pull requests, as the filter menu does on the Mac.
+- **Filters** – the filter button hides drafts, failing Dependabot pull requests, all Dependabot pull requests, or review requests someone else has already approved, as the filter menu does on the Mac.
 - **Refreshing** – pull down to refresh; the app also refreshes every three minutes while it is open.
 - **Not on iOS** – notifications and an app-icon badge.
 
@@ -105,7 +105,7 @@ make install-tui  # copy to /usr/local/bin/ghdash
 ghdash --repo owner/name --repo owner/other   # these repositories, for this run only
 ```
 
-Keys: `j`/`k` or the arrows move, `Enter` opens the row on GitHub or folds a section, `Space` folds the section, `Tab` switches between the repository list and the dashboard, `a` approves the selected review request or deployment after asking, `r` refreshes, `d`, `b` and `B` toggle the filters (drafts, failing Dependabot, all Dependabot), `p` chooses repositories, `q` quits, and the menu bar (`F9`) has the same commands. Inside a [herdr](https://herdr.dev) pane the app reports itself as blocked while something is waiting on you and idle otherwise, so the pane list shows it without a badge. The terminal app keeps its own settings in `~/.config/ghdash/config.json`, separate from the Mac app's: its repositories, filters, folded sections and scope.
+Keys: `j`/`k` or the arrows move, `Enter` opens the row on GitHub or folds a section, `Space` folds the section, `Tab` switches between the repository list and the dashboard, `a` approves the selected review request or deployment after asking, `r` refreshes, `d`, `b` and `B` toggle the filters (drafts, failing Dependabot, all Dependabot), `A` hides review requests someone else approved, `p` chooses repositories, `q` quits, and the menu bar (`F9`) has the same commands. Inside a [herdr](https://herdr.dev) pane the app reports itself as blocked while something is waiting on you and idle otherwise, so the pane list shows it without a badge. The terminal app keeps its own settings in `~/.config/ghdash/config.json`, separate from the Mac app's: its repositories, filters, folded sections and scope.
 
 ## Project
 

@@ -128,7 +128,7 @@ final class DashboardStore {
     /// Rows the dashboard shows for `repo` (nil for all repositories).
     func itemCount(in repo: Repo?, filter: PullRequestFilter) -> Int {
         pullRequests(myPullRequests, in: repo).filter(filter.shows).count
-            + pullRequests(reviewRequests, in: repo).filter(filter.shows).count
+            + pullRequests(reviewRequests, in: repo).filter(filter.showsReviewRequest).count
             + pendingRuns.filter { repo == nil || $0.repo == repo }.count
     }
 
@@ -136,7 +136,7 @@ final class DashboardStore {
     /// review requests, their own visible pull requests that need fixing, and
     /// deployments they can approve.
     func waitingOnMeCount(in repo: Repo?, filter: PullRequestFilter) -> Int {
-        pullRequests(reviewRequests, in: repo).filter(filter.shows).count
+        pullRequests(reviewRequests, in: repo).filter(filter.showsReviewRequest).count
             + pullRequests(myPullRequests, in: repo).filter(filter.shows).filter(\.needsAuthorAttention).count
             + pendingRuns.filter { $0.canApprove && (repo == nil || $0.repo == repo) }.count
     }
@@ -300,7 +300,7 @@ final class DashboardStore {
                 subtitle: pullRequest.title,
                 body: "\(pullRequest.repoName) #\(pullRequest.number) by \(pullRequest.author ?? "unknown")",
                 url: pullRequest.url,
-                isVisible: filter.shows(pullRequest)
+                isVisible: filter.showsReviewRequest(pullRequest)
             )
         }
         // One item per reason, so a pull request that already had conflicts

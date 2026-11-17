@@ -80,6 +80,10 @@ struct PullRequest: Identifiable, Sendable {
     var isFailingDependabot: Bool {
         isDependabot && !checks.failedNames.isEmpty
     }
+
+    /// Someone has approved it already. On a review request that someone is
+    /// another reviewer: the user's own approval takes it off their list.
+    var hasApprovals: Bool { !review.approvedBy.isEmpty }
 }
 
 /// The user's "hide" switches, shared by the dashboard and notifications.
@@ -88,10 +92,13 @@ struct PullRequestFilter {
     var hideFailingDependabot: Bool
     /// Hides every Dependabot pull request, failing or not. Off by default.
     var hideDependabot = false
+    /// Hides review requests someone else has already approved. Off by default.
+    var hideApprovedReviews = false
 
     static let hideDraftsKey = "hideDrafts"
     static let hideFailingDependabotKey = "hideFailingDependabot"
     static let hideDependabotKey = "hideDependabot"
+    static let hideApprovedReviewsKey = "hideApprovedReviews"
 
     /// The switches as last saved.
     static var saved: PullRequestFilter {
@@ -99,7 +106,8 @@ struct PullRequestFilter {
         return PullRequestFilter(
             hideDrafts: defaults.object(forKey: hideDraftsKey) as? Bool ?? true,
             hideFailingDependabot: defaults.object(forKey: hideFailingDependabotKey) as? Bool ?? true,
-            hideDependabot: defaults.bool(forKey: hideDependabotKey)
+            hideDependabot: defaults.bool(forKey: hideDependabotKey),
+            hideApprovedReviews: defaults.bool(forKey: hideApprovedReviewsKey)
         )
     }
 
@@ -109,11 +117,23 @@ struct PullRequestFilter {
             && !(hideFailingDependabot && pullRequest.isFailingDependabot)
     }
 
-    /// "1 draft, 3 Dependabot hidden" for a section, or nil when nothing is hidden.
-    func hiddenNote(for pullRequests: [PullRequest]) -> String? {
+    /// For the pull requests awaiting the user's review, which also hide
+    /// those someone else approved when the user wants that.
+    func showsReviewRequest(_ pullRequest: PullRequest) -> Bool {
+        shows(pullRequest) && !(hideApprovedReviews && pullRequest.hasApprovals)
+    }
+
+    /// "1 draft, 3 Dependabot hidden" for a section, or nil when nothing is
+    /// hidden. `reviewRequests` is true for the section of review requests.
+    func hiddenNote(for pullRequests: [PullRequest], reviewRequests: Bool = false) -> String? {
         let hiddenDrafts = hideDrafts ? pullRequests.filter(\.isDraft).count : 0
-        let hiddenDependabot = pullRequests.count - pullRequests.filter(shows).count - hiddenDrafts
+        let shown = pullRequests.filter(shows)
+        let hiddenDependabot = pullRequests.count - shown.count - hiddenDrafts
+        let hiddenApproved = reviewRequests && hideApprovedReviews ? shown.filter(\.hasApprovals).count : 0
         var notes: [String] = []
+        if hiddenApproved > 0 {
+            notes.append("\(hiddenApproved) approved")
+        }
         if hiddenDrafts > 0 {
             notes.append("\(hiddenDrafts) \(hiddenDrafts == 1 ? "draft" : "drafts")")
         }

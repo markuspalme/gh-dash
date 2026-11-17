@@ -9,6 +9,7 @@ final class TUIConfig: RepoSelectionStorage {
         var hideDrafts = true
         var hideFailingDependabot = true
         var hideDependabot = false
+        var hideApprovedReviews = false
         var collapsedSections: [String] = []
         var scope: String?
 
@@ -21,6 +22,7 @@ final class TUIConfig: RepoSelectionStorage {
             hideDrafts = try container.decodeIfPresent(Bool.self, forKey: .hideDrafts) ?? true
             hideFailingDependabot = try container.decodeIfPresent(Bool.self, forKey: .hideFailingDependabot) ?? true
             hideDependabot = try container.decodeIfPresent(Bool.self, forKey: .hideDependabot) ?? false
+            hideApprovedReviews = try container.decodeIfPresent(Bool.self, forKey: .hideApprovedReviews) ?? false
             collapsedSections = try container.decodeIfPresent([String].self, forKey: .collapsedSections) ?? []
             scope = try container.decodeIfPresent(String.self, forKey: .scope)
         }
@@ -51,13 +53,15 @@ final class TUIConfig: RepoSelectionStorage {
             PullRequestFilter(
                 hideDrafts: contents.hideDrafts,
                 hideFailingDependabot: contents.hideFailingDependabot,
-                hideDependabot: contents.hideDependabot
+                hideDependabot: contents.hideDependabot,
+                hideApprovedReviews: contents.hideApprovedReviews
             )
         }
         set {
             contents.hideDrafts = newValue.hideDrafts
             contents.hideFailingDependabot = newValue.hideFailingDependabot
             contents.hideDependabot = newValue.hideDependabot
+            contents.hideApprovedReviews = newValue.hideApprovedReviews
             save()
         }
     }

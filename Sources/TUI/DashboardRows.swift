@@ -51,7 +51,7 @@ enum DashboardRows {
         rows += pullRequestSection(
             "Awaiting your review", id: "review",
             store.pullRequests(store.reviewRequests, in: scope),
-            showAuthor: true, filter: filter, collapsed: collapsed
+            showAuthor: true, filter: filter, collapsed: collapsed, reviewRequests: true
         )
         rows += pullRequestSection(
             "My pull requests waiting on reviewers", id: "waiting",
@@ -90,14 +90,14 @@ enum DashboardRows {
 
     private static func pullRequestSection(
         _ title: String, id: String, _ pullRequests: [PullRequest],
-        showAuthor: Bool, filter: PullRequestFilter, collapsed: Set<String>
+        showAuthor: Bool, filter: PullRequestFilter, collapsed: Set<String>, reviewRequests: Bool = false
     ) -> [DashboardRow] {
-        let visible = pullRequests.filter(filter.shows)
+        let visible = pullRequests.filter(reviewRequests ? filter.showsReviewRequest : filter.shows)
         let isExpanded = !collapsed.contains(id)
         var rows: [DashboardRow] = [
             .header(
                 id: id, title: title, count: visible.count,
-                note: filter.hiddenNote(for: pullRequests),
+                note: filter.hiddenNote(for: pullRequests, reviewRequests: reviewRequests),
                 isExpanded: isExpanded, link: nil
             ),
         ]
