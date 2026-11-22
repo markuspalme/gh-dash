@@ -283,6 +283,73 @@ struct LinkRow<Content: View>: View {
     }
 }
 
+#if os(iOS)
+/// A pan that only starts on a leftward, mostly sideways move. A SwiftUI
+/// DragGesture on a button inside a ScrollView loses the touch to the scroll
+/// view, so this goes through UIKit, and stops the page scrolling once it
+/// has taken over.
+private struct SidewaysPan: UIGestureRecognizerRepresentable {
+    var isEnabled: Bool
+    var changed: (CGFloat) -> Void
+    var ended: () -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        pan.isEnabled = isEnabled
+        return pan
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        switch recognizer.state {
+        case .began:
+            context.coordinator.stopScrolling()
+            changed(recognizer.translation(in: recognizer.view).x)
+        case .changed:
+            changed(recognizer.translation(in: recognizer.view).x)
+        case .ended, .cancelled, .failed:
+            ended()
+        default:
+            break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var scrolling: UIGestureRecognizer?
+
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.2
+        }
+
+        func gestureRecognizer(
+            _ recognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            guard other.view is UIScrollView else { return false }
+            scrolling = other
+            return true
+        }
+
+        /// Cancels the scroll view's pan by switching it off and on.
+        func stopScrolling() {
+            guard let scrolling, scrolling.isEnabled else { return }
+            scrolling.isEnabled = false
+            scrolling.isEnabled = true
+        }
+    }
+}
+#endif
+
 /// Slides a row left under the finger, or two fingers on a trackpad,
 /// uncovering a green check mark. Letting go once the mark has filled in
 /// calls `trigger`; letting go earlier puts the row back.
@@ -332,7 +399,7 @@ private struct SwipeToApprove: ViewModifier {
             }
             .clipped()
             #if os(iOS)
-            .simultaneousGesture(drag, including: isEnabled ? .all : .subviews)
+            .gesture(SidewaysPan(isEnabled: isEnabled, changed: follow, ended: finish))
             .sensoryFeedback(.impact, trigger: isArmed) { _, armed in armed }
             #else
             .onHover { hovering in
@@ -364,18 +431,7 @@ private struct SwipeToApprove: ViewModifier {
     }
 
     #if os(iOS)
-    private var drag: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                if isHorizontal == nil {
-                    isHorizontal = abs(value.translation.width) > abs(value.translation.height)
-                }
-                if isHorizontal == true {
-                    follow(value.translation.width)
-                }
-            }
-            .onEnded { _ in finish() }
-    }
+    // The sideways swipe is a UIKit pan, see SidewaysPan.
     #else
     private func startMonitoring() {
         guard monitor == nil else { return }
