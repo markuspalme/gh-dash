@@ -260,11 +260,34 @@ struct LinkRow<Content: View>: View {
                 #endif
             }
         }
+        #if os(iOS)
+        // The row pads itself.
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        // The dashboard is a List on iOS, so this is the system's own swipe.
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let approval, !approval.isInFlight {
+                Button {
+                    isConfirming = true
+                } label: {
+                    Label(approval.title, systemImage: "checkmark")
+                }
+                .tint(.green)
+            }
+        }
+        .opacity(approval?.isInFlight == true ? 0.5 : 1)
+        .overlay(alignment: .trailing) {
+            if approval?.isInFlight == true {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        #else
         .modifier(SwipeToApprove(
             isEnabled: approval.map { !$0.isInFlight } ?? false,
             isInFlight: approval?.isInFlight ?? false,
             trigger: { isConfirming = true }
         ))
+        #endif
         .confirmationDialog(approval?.question ?? "", isPresented: $isConfirming, titleVisibility: .visible) {
             if let approval {
                 Button(approval.title, action: approval.perform)
@@ -283,75 +306,8 @@ struct LinkRow<Content: View>: View {
     }
 }
 
-#if os(iOS)
-/// A pan that only starts on a leftward, mostly sideways move. A SwiftUI
-/// DragGesture on a button inside a ScrollView loses the touch to the scroll
-/// view, so this goes through UIKit, and stops the page scrolling once it
-/// has taken over.
-private struct SidewaysPan: UIGestureRecognizerRepresentable {
-    var isEnabled: Bool
-    var changed: (CGFloat) -> Void
-    var ended: () -> Void
-
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
-        let pan = UIPanGestureRecognizer()
-        pan.delegate = context.coordinator
-        pan.isEnabled = isEnabled
-        return pan
-    }
-
-    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        recognizer.isEnabled = isEnabled
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
-        switch recognizer.state {
-        case .began:
-            context.coordinator.stopScrolling()
-            changed(recognizer.translation(in: recognizer.view).x)
-        case .changed:
-            changed(recognizer.translation(in: recognizer.view).x)
-        case .ended, .cancelled, .failed:
-            ended()
-        default:
-            break
-        }
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        private weak var scrolling: UIGestureRecognizer?
-
-        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
-            let velocity = pan.velocity(in: pan.view)
-            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.2
-        }
-
-        func gestureRecognizer(
-            _ recognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-        ) -> Bool {
-            guard other.view is UIScrollView else { return false }
-            scrolling = other
-            return true
-        }
-
-        /// Cancels the scroll view's pan by switching it off and on.
-        func stopScrolling() {
-            guard let scrolling, scrolling.isEnabled else { return }
-            scrolling.isEnabled = false
-            scrolling.isEnabled = true
-        }
-    }
-}
-#endif
-
-/// Slides a row left under the finger, or two fingers on a trackpad,
-/// uncovering a green check mark. Letting go once the mark has filled in
+#if os(macOS)
+/// Slides a row left under two fingers on a trackpad, uncovering a green check mark. Letting go once the mark has filled in
 /// calls `trigger`; letting go earlier puts the row back.
 private struct SwipeToApprove: ViewModifier {
     let isEnabled: Bool
@@ -361,12 +317,10 @@ private struct SwipeToApprove: ViewModifier {
     @State private var offset: CGFloat = 0
     /// Whether the current gesture is a sideways swipe; nil until it is clear.
     @State private var isHorizontal: Bool?
-    #if os(macOS)
     @State private var monitor: Any?
     @State private var travel = CGSize.zero
     /// Set after a swipe, so the trackpad's momentum does not scroll the page.
     @State private var swallowMomentum = false
-    #endif
 
     private static let threshold: CGFloat = 80
 
@@ -398,10 +352,6 @@ private struct SwipeToApprove: ViewModifier {
                 }
             }
             .clipped()
-            #if os(iOS)
-            .gesture(SidewaysPan(isEnabled: isEnabled, changed: follow, ended: finish))
-            .sensoryFeedback(.impact, trigger: isArmed) { _, armed in armed }
-            #else
             .onHover { hovering in
                 if hovering && isEnabled {
                     startMonitoring()
@@ -413,7 +363,6 @@ private struct SwipeToApprove: ViewModifier {
                 if !enabled { stopMonitoring() }
             }
             .onDisappear(perform: stopMonitoring)
-            #endif
     }
 
     /// Follows the swipe; past the threshold it only gives a little more.
@@ -430,9 +379,6 @@ private struct SwipeToApprove: ViewModifier {
         if fire { trigger() }
     }
 
-    #if os(iOS)
-    // The sideways swipe is a UIKit pan, see SidewaysPan.
-    #else
     private func startMonitoring() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
@@ -486,8 +432,8 @@ private struct SwipeToApprove: ViewModifier {
             return false
         }
     }
-    #endif
 }
+#endif
 
 struct Badge: View {
     let text: String

@@ -11,37 +11,7 @@ struct DashboardView: View {
     @AppStorage("collapsedSections") private var collapsedSections = ""
 
     var body: some View {
-        // A plain stack, not a List: in a split view's detail column, List
-        // clipped rows to their first line when the data arrived after launch.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if store.lastUpdated != nil {
-                    pullRequestSection(
-                        "My open pull requests", id: "mine",
-                        store.myPullRequests.filter { !$0.isOnlyAwaitingReview },
-                        showAuthor: false
-                    )
-                    pullRequestSection(
-                        "Awaiting your review", id: "review",
-                        store.reviewRequests,
-                        showAuthor: true,
-                        approvable: true
-                    )
-                    pullRequestSection(
-                        "My pull requests waiting on reviewers", id: "waiting",
-                        store.myPullRequests.filter(\.isOnlyAwaitingReview),
-                        showAuthor: false
-                    )
-                    pendingRunSections
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Keyed on the stored value: a change that arrives through
-            // AppStorage does not carry a withAnimation transaction.
-            .animation(.easeInOut(duration: 0.2), value: collapsedSections)
-        }
+        container
         .overlay {
             if store.repos.isEmpty {
                 ContentUnavailableView {
@@ -61,6 +31,55 @@ struct DashboardView: View {
             if !messages.isEmpty {
                 ErrorBanner(message: messages.joined(separator: "\n"))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var container: some View {
+        #if os(iOS)
+        // A List, for the system's swipe actions on rows.
+        List {
+            sections
+        }
+        .listStyle(.plain)
+        .animation(.easeInOut(duration: 0.2), value: collapsedSections)
+        #else
+        // A plain stack, not a List: in a split view's detail column, List
+        // clipped rows to their first line when the data arrived after launch.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                sections
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Keyed on the stored value: a change that arrives through
+            // AppStorage does not carry a withAnimation transaction.
+            .animation(.easeInOut(duration: 0.2), value: collapsedSections)
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var sections: some View {
+        if store.lastUpdated != nil {
+            pullRequestSection(
+                "My open pull requests", id: "mine",
+                store.myPullRequests.filter { !$0.isOnlyAwaitingReview },
+                showAuthor: false
+            )
+            pullRequestSection(
+                "Awaiting your review", id: "review",
+                store.reviewRequests,
+                showAuthor: true,
+                approvable: true
+            )
+            pullRequestSection(
+                "My pull requests waiting on reviewers", id: "waiting",
+                store.myPullRequests.filter(\.isOnlyAwaitingReview),
+                showAuthor: false
+            )
+            pendingRunSections
         }
     }
 
@@ -95,7 +114,9 @@ struct DashboardView: View {
                     pullRequest: pullRequest, showAuthor: showAuthor,
                     approval: approvable ? approval(for: pullRequest) : nil
                 )
-                Divider()
+                #if os(macOS)
+                Divider() // A List draws its own.
+                #endif
             }
         }
     }
@@ -153,7 +174,9 @@ struct DashboardView: View {
                 ) {
                     ForEach(runs) { run in
                         WorkflowRunRow(run: run, approval: approval(for: run))
+                        #if os(macOS)
                         Divider()
+                        #endif
                     }
                 }
             }
@@ -171,6 +194,16 @@ private struct DashboardSection<Rows: View>: View {
     @ViewBuilder var rows: Rows
 
     var body: some View {
+        #if os(iOS)
+        Section {
+            if isExpanded {
+                rows
+            }
+        } header: {
+            SectionHeader(title: title, count: count, isExpanded: $isExpanded, note: note, link: link)
+                .padding(.top, 10)
+        }
+        #else
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(title: title, count: count, isExpanded: $isExpanded, note: note, link: link)
             Divider()
@@ -186,6 +219,7 @@ private struct DashboardSection<Rows: View>: View {
             .accessibilityHidden(!isExpanded)
         }
         .padding(.bottom, 22)
+        #endif
     }
 }
 
@@ -236,7 +270,8 @@ private struct SectionHeader: View {
                 .frame(width: 12)
             Text(title)
                 .font(.headline)
-                .foregroundStyle(.primary)
+                // Color.primary, not .primary: a List header dims the latter.
+                .foregroundStyle(Color.primary)
                 .lineLimit(1)
             Text(verbatim: "\(count)")
                 .font(.subheadline.monospacedDigit())
@@ -259,6 +294,9 @@ private struct EmptyRow: View {
         Text(text)
             .foregroundStyle(.secondary)
             .padding(.vertical, 8)
+            #if os(iOS)
+            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+            #endif
     }
 }
 
