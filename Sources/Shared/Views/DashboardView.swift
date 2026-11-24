@@ -34,30 +34,15 @@ struct DashboardView: View {
         }
     }
 
-    @ViewBuilder
     private var container: some View {
-        #if os(iOS)
         // A List, for the system's swipe actions on rows.
         List {
             sections
         }
         .listStyle(.plain)
+        // Keyed on the stored value: a change that arrives through
+        // AppStorage does not carry a withAnimation transaction.
         .animation(.easeInOut(duration: 0.2), value: collapsedSections)
-        #else
-        // A plain stack, not a List: in a split view's detail column, List
-        // clipped rows to their first line when the data arrived after launch.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                sections
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Keyed on the stored value: a change that arrives through
-            // AppStorage does not carry a withAnimation transaction.
-            .animation(.easeInOut(duration: 0.2), value: collapsedSections)
-        }
-        #endif
     }
 
     @ViewBuilder
@@ -114,9 +99,6 @@ struct DashboardView: View {
                     pullRequest: pullRequest, showAuthor: showAuthor,
                     approval: approvable ? approval(for: pullRequest) : nil
                 )
-                #if os(macOS)
-                Divider() // A List draws its own.
-                #endif
             }
         }
     }
@@ -174,9 +156,6 @@ struct DashboardView: View {
                 ) {
                     ForEach(runs) { run in
                         WorkflowRunRow(run: run, approval: approval(for: run))
-                        #if os(macOS)
-                        Divider()
-                        #endif
                     }
                 }
             }
@@ -194,7 +173,6 @@ private struct DashboardSection<Rows: View>: View {
     @ViewBuilder var rows: Rows
 
     var body: some View {
-        #if os(iOS)
         Section {
             if isExpanded {
                 rows
@@ -203,23 +181,6 @@ private struct DashboardSection<Rows: View>: View {
             SectionHeader(title: title, count: count, isExpanded: $isExpanded, note: note, link: link)
                 .padding(.top, 10)
         }
-        #else
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: title, count: count, isExpanded: $isExpanded, note: note, link: link)
-            Divider()
-            // Collapsed rows stay in the hierarchy at zero height, so the
-            // section folds shut instead of popping out of the layout.
-            VStack(alignment: .leading, spacing: 0) {
-                rows
-            }
-            .frame(height: isExpanded ? nil : 0, alignment: .top)
-            .clipped()
-            .opacity(isExpanded ? 1 : 0)
-            .allowsHitTesting(isExpanded)
-            .accessibilityHidden(!isExpanded)
-        }
-        .padding(.bottom, 22)
-        #endif
     }
 }
 
@@ -294,9 +255,7 @@ private struct EmptyRow: View {
         Text(text)
             .foregroundStyle(.secondary)
             .padding(.vertical, 8)
-            #if os(iOS)
             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-            #endif
     }
 }
 
